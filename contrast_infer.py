@@ -107,7 +107,7 @@ if __name__ == '__main__':
                 tensor[key + 1] = cam_dict[key]
             tensor[0, :, :] = bg_score
             predict = np.argmax(tensor, axis=0).astype(np.uint8)
-            img = Image.open(os.path.join('./VOC2012/JPEGImages', img_name + '.jpg')).convert("RGB")
+            img = Image.open(os.path.join(args.voc12_root, 'JPEGImages', img_name + '.jpg')).convert("RGB")
             img = np.array(img)
             crf_score = _crf_inference(img, predict)
             return np.argmax(crf_score, axis=0).astype(np.uint8)

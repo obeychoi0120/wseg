@@ -3,11 +3,11 @@ import torch.nn as nn
 import torch.sparse as sparse
 import torch.nn.functional as F
 
-import wSEAM.network.resnet38d
-from wSEAM.tool import pyutils
+import network.resnet38d
+from tool import pyutils
 
 
-class Net(wSEAM.network.resnet38d.Net):
+class Net(network.resnet38d.Net):
     def __init__(self):
         super(Net, self).__init__()
 

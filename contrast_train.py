@@ -43,7 +43,7 @@ if __name__ == '__main__':
     parser.add_argument("--wt_dec", default=5e-4, type=float)
     parser.add_argument("--train_list", default="voc12/train_aug.txt", type=str)
     parser.add_argument("--val_list", default="voc12/val.txt", type=str)
-    parser.add_argument("--session_name", default="resnet38_contrast", type=str)
+    parser.add_argument("--session_name", default="resnet38", type=str)
     parser.add_argument("--crop_size", default=448, type=int)
     parser.add_argument("--weights", required=True, type=str)
     parser.add_argument("--voc12_root", default='VOC2012', type=str)
@@ -53,7 +53,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    pyutils.Logger(args.session_name + '.log')
+    pyutils.Logger(os.path.join('result', args.session_name, 'contrast.log'))
 
     print(vars(args))
 
@@ -438,4 +438,4 @@ if __name__ == '__main__':
             timer.reset_stage()
     print(args.session_name)
 
-    torch.save(model.module.state_dict(), args.session_name + '.pth')
+    torch.save(model.module.state_dict(), os.path.join('result', args.session_name, 'contrast.pth'))

@@ -224,13 +224,13 @@ class VOC12AffDataset(VOC12ImageDataset):
 
         label_ha_path = os.path.join(self.label_ha_dir, name + '.npy')
 
-        label_la = np.load(label_la_path, allow_pickle=True).item()
-        label_ha = np.load(label_ha_path, allow_pickle=True).item()
-        label = np.array(list(label_la.values()) + list(label_ha.values()))
+        # label_la = np.load(label_la_path, allow_pickle=True).item()
+        # label_ha = np.load(label_ha_path, allow_pickle=True).item()
+        # label = np.array(list(label_la.values()) + list(label_ha.values()))
         # TODO: 如果保存的是dict就用上面三行，如果是array就用下面三行
-        # label_la = np.load(label_la_path, allow_pickle=True)
-        # label_ha = np.load(label_ha_path, allow_pickle=True)
-        # label = np.array(list(label_la) + list(label_ha))
+        label_la = np.load(label_la_path, allow_pickle=True)
+        label_ha = np.load(label_ha_path, allow_pickle=True)
+        label = np.array(list(label_la) + list(label_ha))
 
         label = np.transpose(label, (1, 2, 0))
 

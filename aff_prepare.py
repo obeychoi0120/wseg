@@ -1,5 +1,6 @@
 import numpy as np
 import os
+import pathlib
 import argparse
 from PIL import Image
 import pandas as pd
@@ -29,7 +30,6 @@ if __name__ == '__main__':
     df = pd.read_csv(args.infer_list, names=['filename'])
     name_list = df['filename'].values
 
-
     # https://github.com/pigcv/AdvCAM/blob/fa08f0ad4c1f764f3ccaf36883c0ae43342d34c5/misc/imutils.py#L156
     def _crf_inference(img, labels, t=10, n_labels=21, gt_prob=0.7):
         h, w = img.shape[:2]
@@ -52,7 +52,7 @@ if __name__ == '__main__':
 
     def _infer_crf_with_alpha(start, step, alpha):
         for idx in range(start, len(name_list), step):
-            name = name_list[idx]
+            name = pathlib.Path(name_list[idx]).stem
             cam_file = os.path.join(args.cam_dir, '%s.npy' % name)
             cam_dict = np.load(cam_file, allow_pickle=True).item()
             h, w = list(cam_dict.values())[0].shape
@@ -62,7 +62,7 @@ if __name__ == '__main__':
             tensor[0, :, :] = np.power(1 - np.max(tensor, axis=0, keepdims=True), alpha)
 
             predict = np.argmax(tensor, axis=0).astype(np.uint8)
-            img = Image.open(os.path.join('./VOC2012/JPEGImages', name + '.jpg')).convert("RGB")
+            img = Image.open(os.path.join(args.voc12_root, 'JPEGImages', name + '.jpg')).convert("RGB")
             img = np.array(img)
             crf_array = _crf_inference(img, predict)
 
