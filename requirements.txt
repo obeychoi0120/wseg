@@ -1,0 +1,10 @@
+torch
+torchvision
+git+https://github.com/lucasb-eyer/pydensecrf
+opencv-python
+tensorboardX
+imageio
+pandas
+pytz
+mxnet
+scikit-image
