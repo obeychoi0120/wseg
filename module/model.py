@@ -10,6 +10,7 @@ def get_model(args):
         assert args.network in ["network.resnet38_cls",
                                 "network.resnet38_eps",
                                 "network.resnet38_eps_seam",
+                                "network.resnet38_contrast",
                                 "network_with_PCM.resnet38_eps_seam_p"]
         import network.resnet38d
         weights_dict = network.resnet38d.convert_mxnet_to_torch(args.weights)
