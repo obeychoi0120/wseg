@@ -96,11 +96,13 @@ if __name__ == '__main__':
     model = torch.nn.DataParallel(model).cuda()
     model.train()
     if args.network_type == 'cls':
-        train_cls(train_loader, model, optimizer, max_step, args)
+        train_cls(train_loader, val_loader, model, optimizer, max_step, args)
     elif args.network_type == 'eps':
-        train_eps(train_loader, model, optimizer, max_step, args)
+        train_eps(train_loader, val_loader, model, optimizer, max_step, args)
     elif args.network_type == 'contrast':
-        train_contrast(train_loader, model, optimizer, max_step, args)
+        train_contrast(train_loader, val_loader, model, optimizer, max_step, args)
 
     else:
         raise Exception('No appropriate model type')
+    
+    print('Train Done.')
