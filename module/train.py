@@ -6,6 +6,8 @@ from util import pyutils
 import random
 import numpy as np
 
+from module.validate import validate
+
 
 def max_norm(p, e=1e-5):
     if p.dim() == 3:
@@ -288,7 +290,7 @@ def max_onehot(x):
     return x
 
 
-def train_cls(train_loader, model, optimizer, max_step, args):
+def train_cls(train_loader, val_dataloader, model, optimizer, max_step, args):
     avg_meter = pyutils.AverageMeter('loss')
     timer = pyutils.Timer("Session started: ")
     loader_iter = iter(train_loader)
@@ -325,7 +327,7 @@ def train_cls(train_loader, model, optimizer, max_step, args):
     torch.save(model.module.state_dict(), os.path.join(args.log_folder, 'checkpoint_cls.pth'))
 
 
-def train_eps(train_dataloader, model, optimizer, max_step, args):
+def train_eps(train_dataloader, val_dataloader, model, optimizer, max_step, args):
     avg_meter = pyutils.AverageMeter('loss', 'loss_cls', 'loss_sal')
     timer = pyutils.Timer("Session started: ")
     loader_iter = iter(train_dataloader)
@@ -375,7 +377,7 @@ def train_eps(train_dataloader, model, optimizer, max_step, args):
     torch.save(model.module.state_dict(), os.path.join(args.log_folder, 'checkpoint_cls.pth'))
 
 
-def train_contrast(train_dataloader, model, optimizer, max_step, args):
+def train_contrast(train_dataloader, val_dataloader, model, optimizer, max_step, args):
     avg_meter = pyutils.AverageMeter('loss', 'loss_cls', 'loss_sal', 'loss_nce', 'loss_er', 'loss_ecr')
     timer = pyutils.Timer("Session started: ")
     loader_iter = iter(train_dataloader)
@@ -450,8 +452,10 @@ def train_contrast(train_dataloader, model, optimizer, max_step, args):
                       'imps:%.1f' % ((iteration+1) * args.batch_size / timer.get_stage_elapsed()),
                       'Fin:%s' % (timer.str_est_finish()),
                       'lr: %.4f' % (optimizer.param_groups[0]['lr']), flush=True)
-
-            # validate(model, val_data_loader, epoch=ep + 1)
+            
+            # Validate 10 times
+            if (optimizer.global_step-1) % (max_step // 10) == 0:
+                validate(model, val_dataloader, iteration, args)
             timer.reset_stage()
     torch.save(model.module.state_dict(), os.path.join(args.log_folder, 'checkpoint_contrast.pth'))
 

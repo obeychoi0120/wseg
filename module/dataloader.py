@@ -40,6 +40,14 @@ def get_dataloader(args):
             crop_size=args.crop_size,
             resize_size=args.resize_size
         )
+    elif args.network_type == 'contrast':
+        train_dataset = ClassificationDatasetWithSaliency(
+            args.train_list,
+            img_root=args.data_root,
+            saliency_root=args.saliency_root,
+            crop_size=args.crop_size,
+            resize_size=args.resize_size
+        )
     else:
         raise Exception("No appropriate train type")
 

@@ -1,0 +1,6 @@
+train_log/*
+pretrained/&*
+__pycache__
+.ipynb_checkpoint
+*.pth
+*.params
