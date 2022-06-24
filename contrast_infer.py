@@ -44,6 +44,8 @@ def parse_args():
         args.network_type = 'eps_seam'
     elif 'eps' in args.network:
         args.network_type = 'eps'
+    elif 'contrast' in args.network:
+        args.network_type = 'contrast'
     else:
         raise Exception('No appropriate model type')
 
@@ -193,6 +195,10 @@ def infer_cam_mp(process_id, image_ids, label_list, cur_gpu):
             cam_fg = cam_np[:, 0]
             sum_cam = np.sum(cam_fg, axis=0)
         elif args.network_type == 'eps':
+            cam_np = np.array(cam_list)
+            cam_fg = cam_np[:, 0]
+            sum_cam = np.sum(cam_fg, axis=0)
+        elif args.network_type == 'contrast':
             cam_np = np.array(cam_list)
             cam_fg = cam_np[:, 0]
             sum_cam = np.sum(cam_fg, axis=0)
