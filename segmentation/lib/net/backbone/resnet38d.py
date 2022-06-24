@@ -2,7 +2,7 @@ import torch
 from torch import nn
 import numpy as np
 import torch.nn.functional as F
-from wSEAM.utils import BACKBONES
+from utils import BACKBONES
 
 model_url='/home1/wangyude/project/SEAM/models/ilsvrc-cls_rna-a1_cls1000_ep-0001.params'
 bn_mom = 0.0003

@@ -19,7 +19,7 @@ from datasets.BaseDataset import BaseDataset
 
 @DATASETS.register_module
 class VOCDataset(BaseDataset):
-	def __init__(self, cfg, period, transform='none'):
+	def __init__(self, cfg, period, transform='none', datalist=''):
 		super(VOCDataset, self).__init__(cfg, period, transform)
 		self.dataset_name = 'VOC%d'%cfg.DATA_YEAR
 		self.root_dir = os.path.join(cfg.ROOT_DIR,'data','VOCdevkit')
@@ -35,8 +35,9 @@ class VOCDataset(BaseDataset):
 		else:
 			self.pseudo_gt_dir = os.path.join(self.root_dir,'pseudo_gt',self.dataset_name,'Segmentation')
 
-		file_name = None
-		if cfg.DATA_AUG and 'train' in self.period:
+		if datalist:
+			file_name = datalist
+		elif cfg.DATA_AUG and 'train' in self.period:
 			file_name = self.set_dir+'/'+period+'aug.txt'
 		else:
 			file_name = self.set_dir+'/'+period+'.txt'

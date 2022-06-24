@@ -10,10 +10,12 @@ import time
 
 config_dict = {
 		'EXP_NAME': 'EPS_deeplabv2_resnet101',
-		'GPUS': 1,
+		'GPUS': 4,
 
 		'DATA_NAME': 'VOCDataset',
 		'DATA_YEAR': 2012,
+		'DATA_PERIOD': 'train',
+		'DATA_LIST': '../../../voc12/train_aug_id.txt',
 		'DATA_AUG': True,
 		'DATA_WORKERS': 4,
 		'DATA_MEAN': [0.485, 0.456, 0.406],
@@ -24,7 +26,7 @@ config_dict = {
 		'DATA_RANDOM_S': 10,
 		'DATA_RANDOM_V': 10,
 		'DATA_RANDOMFLIP': 0.5,
-		'DATA_PSEUDO_GT': 'your_pseudo_label_dir',
+		'DATA_PSEUDO_GT': 'YOUR_PSEUDO_LABEL_DIR',
 
 		'MODEL_NAME': 'deeplabv2',
 		'MODEL_BACKBONE': 'resnet101',
@@ -48,7 +50,7 @@ config_dict = {
 		'TRAIN_WEIGHT_DECAY': 0.0005,
 		'TRAIN_BN_MOM': 0.0003,
 		'TRAIN_POWER': 0.9,
-		'TRAIN_BATCHES': 10,
+		'TRAIN_BATCHES': 12,
 		'TRAIN_SHUFFLE': True,
 		'TRAIN_MINEPOCH': 0,
 		'TRAIN_ITERATION': 20000,

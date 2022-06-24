@@ -13,8 +13,9 @@ from utils.registry import NETS
 class _deeplabv2(nn.Module):	
 	def __init__(self, cfg, batchnorm=nn.BatchNorm2d):
 		super(_deeplabv2, self).__init__()
+		self.cfg = cfg
 		self.batchnorm = batchnorm
-		self.backbone = build_backbone(self.cfg.MODEL_BACKBONE, os=self.cfg.MODEL_OUTPUT_STRIDE)
+		self.backbone = build_backbone(self.cfg.MODEL_BACKBONE) #, os=self.cfg.MODEL_OUTPUT_STRIDE)
 		input_channel = self.backbone.OUTPUT_DIM	
 		self.aspp = ASPP(dim_in=input_channel, 
 				dim_out=cfg.MODEL_ASPP_OUTDIM, 
@@ -23,7 +24,6 @@ class _deeplabv2(nn.Module):
 				has_global=cfg.MODEL_ASPP_HASGLOBAL,
 				batchnorm=batchnorm
 		)
-		self.cfg = cfg
 	def __initial__(self):
 		for m in self.modules():
 			if m not in self.backbone.modules():

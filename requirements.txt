@@ -3,8 +3,10 @@ torchvision
 git+https://github.com/lucasb-eyer/pydensecrf
 opencv-python
 tensorboardX
+tensorboard
 imageio
 pandas
 pytz
 mxnet
 scikit-image
+scikit-learn

@@ -36,9 +36,9 @@ from tqdm import tqdm
 cfg = Configuration(config_dict)
 
 def train_net():
-	period = 'train'
+	period = cfg.DATA_PERIOD
 	transform = 'weak'
-	dataset = generate_dataset(cfg, period=period, transform=transform)
+	dataset = generate_dataset(cfg, period=period, transform=transform, datalist=cfg.DATA_LIST)
 	def worker_init_fn(worker_id):
 		np.random.seed(1 + worker_id)
 	dataloader = DataLoader(dataset,
