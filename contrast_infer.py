@@ -237,8 +237,9 @@ def infer_cam_mp(process_id, image_ids, label_list, cur_gpu):
             for folder, t, alpha in args.crf_list:
                 cam_crf = _crf_with_alpha(org_img, cam_dict, alpha, t=t)
                 np.save(os.path.join(folder, img_id + '.npy'), cam_crf)
-        if i % 10 == 0:
+        if i % 50 == 0:
             print('PID{}, {}/{} is complete'.format(process_id, i, len(image_ids)))
+    print('PID{}, {} complete'.format(process_id, len(image_ids)))
 
 
 def main_mp():

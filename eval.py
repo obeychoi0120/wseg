@@ -32,8 +32,8 @@ def do_python_eval(predict_folder, gt_folder, name_list, num_cls=21, input_type=
                 tensor = np.zeros((21, h, w), np.float32)
 
                 for key in predict_dict.keys():
-                    tensor[key+1] = predict_dict[key] # replace key+1 to key when crf input
-                tensor[0, :, :] = threshold # discard(comment) when crf input
+                    tensor[key+1] = predict_dict[key] ### replace key+1 to key when crf input ###
+                tensor[0, :, :] = threshold ### discard(comment) when crf input ###
                 predict = np.argmax(tensor, axis=0).astype(np.uint8)
 
             gt_file = os.path.join(gt_folder, '%s.png' % name)
@@ -64,18 +64,30 @@ def do_python_eval(predict_folder, gt_folder, name_list, num_cls=21, input_type=
     P_TP = []
     FP_ALL = []
     FN_ALL = []
+    Precision = []
+    Recall = []
     for i in range(num_cls):
         IoU.append(TP[i].value / (T[i].value + P[i].value - TP[i].value + 1e-10))
         T_TP.append(T[i].value / (TP[i].value + 1e-10))
         P_TP.append(P[i].value / (TP[i].value + 1e-10))
         FP_ALL.append((P[i].value - TP[i].value) / (T[i].value + P[i].value - TP[i].value + 1e-10))
         FN_ALL.append((T[i].value - TP[i].value) / (T[i].value + P[i].value - TP[i].value + 1e-10))
+        Precision.append(TP[i].value / (P[i].value + 1e-10))
+        Recall.append(TP[i].value / (T[i].value + 1e-10))
+        
     loglist = {}
     for i in range(num_cls):
         loglist[categories[i]] = IoU[i] * 100
+        loglist[categories[i]+'_P'] = Precision[i] * 100
+        loglist[categories[i]+'_R'] = Recall[i] * 100
 
     miou = np.mean(np.array(IoU))
+    precision = np.mean(np.array(Precision))
+    recall = np.mean(np.array(Recall))
+    
     loglist['mIoU'] = miou * 100
+    loglist['Precision'] = precision * 100
+    loglist['Recall'] = recall * 100
     if printlog:
         for i in range(num_cls):
             if i % 2 != 1:
@@ -92,7 +104,7 @@ def writedict(file, dictionary):
     for key in dictionary.keys():
         sub = '%s:%s  ' % (key, dictionary[key])
         s += sub
-    s += '\n'
+        s += '\n'
     file.write(s)
 
 
@@ -129,9 +141,14 @@ if __name__ == '__main__':
         writelog(args.logfile, loglist, args.comment)
     else:
         l = []
+        p = []
+        r = []
         for i in range(60):
             t = i / 100.0
             loglist = do_python_eval(args.predict_dir, args.gt_dir, name_list, 21, args.type, t)
             l.append(loglist['mIoU'])
-            print('%d/60 background score: %.3f\tmIoU: %.3f%%' % (i, t, loglist['mIoU']))
-        writelog(args.logfile, {'mIoU': l}, args.comment)
+            p.append(loglist['Precision'])
+            r.append(loglist['Recall'])
+            print('%d/60 background score: %.3f\tmIoU: %.3f%%\tPrecision: %.3f%%\tRecall: %.3f%%' % 
+                (i, t, loglist['mIoU'], loglist['Precision'], loglist['Recall']))
+        writelog(args.logfile, {'mIoU': l, 'Precision': p, 'Recall': r}, args.comment)

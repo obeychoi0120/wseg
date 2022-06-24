@@ -54,7 +54,7 @@ def validate(model, data_loader, epoch, args):
         mean_f1 = f1.mean()
 
     model.train()
-    print('[Val] loss:', val_loss_meter.pop('loss'))
+    print('loss:', val_loss_meter.pop('loss'))
     #print("Epoch({:03d})\t".format(epoch))
     print("mAP: {:.2f}\t".format(map))
     print("MeanACC: {:.2f}\t".format(mean_acc))
