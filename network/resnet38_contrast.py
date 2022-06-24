@@ -58,6 +58,12 @@ class Net(network.resnet38d.Net):
 
         return pred, cam, pred_rv, cam_rv, feats
 
+    def forward_cam(self, x):
+        x = super().forward(x)
+        cam = self.fc8(x)
+
+        return cam
+
     def get_parameter_groups(self):
         groups = ([], [], [], [])
 
