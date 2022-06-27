@@ -1,44 +1,59 @@
 # NEED TO SET
-DATASET_ROOT=./VOC2012
-WEIGHT_ROOT=./weights
+DATASET_ROOT=../../dataset/VOC/VOCdevkit/VOC2012/
+WEIGHT_ROOT=./pretrained
 SALIENCY_ROOT=./SALImages
 
-GPU=0,1
+GPU=0,1,2,3
 
 # Default setting
 IMG_ROOT=${DATASET_ROOT}/JPEGImages
-SAL_ROOT=${SALIENCY_ROOT}
+SAL_ROOT=${DATASET_ROOT}/${SALIENCY_ROOT}
 BACKBONE=resnet38_contrast
 SESSION=resnet38_contrast
 BASE_WEIGHT=${WEIGHT_ROOT}/ilsvrc-cls_rna-a1_cls1000_ep-0001.params
 
 
 # train classification network with Contrastive Learning
-CUDA_VISIBLE_DEVICES=${GPU} python3 train.py \
-  --session ${SESSION} \
-  --network network.${BACKBONE} \
-  --data_root ${IMG_ROOT} \
-  --saliency_root ${SAL_ROOT} \
-  --weights ${BASE_WEIGHT} \
-  --crop_size 448 \
-  --tau 0.4 \
-  --max_iters 10000 \
-  --iter_size 2 \
-  --batch_size 8
+# CUDA_VISIBLE_DEVICES=${GPU} python3 contrast_train.py \
+#   --session ${SESSION} \
+#   --network network.${BACKBONE} \
+#   --data_root ${IMG_ROOT} \
+#   --saliency_root ${SAL_ROOT} \
+#   --weights ${BASE_WEIGHT} \
+#   --crop_size 448 \
+#   --tau 0.4 \
+#   --max_iters 10000 \
+#   --iter_size 2 \
+#   --batch_size 8
+
+
+# # Evaluate classification network
+# CUDA_VISIBLE_DEVICES=${GPU} python3 contrast_train.py \
+#   --eval True \
+#   --session ${SESSION} \
+#   --network network.${BACKBONE} \
+#   --data_root ${IMG_ROOT} \
+#   --saliency_root ${SAL_ROOT} \
+#   --weights train_log/${SESSION}/checkpoint_contrast.pth \
+#   --crop_size 448 \
+#   --tau 0.4 \
+#   --max_iters 10000 \
+#   --iter_size 2 \
+#   --batch_size 8
 
 
 # 2. inference CAM
-DATA=train_aug # train / train_aug
+DATA=val # train / train_aug
 TRAINED_WEIGHT=train_log/${SESSION}/checkpoint_contrast.pth
 
-CUDA_VISIBLE_DEVICES=${GPU} python3 infer.py \
+CUDA_VISIBLE_DEVICES=${GPU} python3 contrast_infer.py \
     --infer_list data/voc12/${DATA}_id.txt \
     --img_root ${IMG_ROOT} \
-    --network network_with_PCM.${BACKBONE} \
+    --network network.${BACKBONE} \
     --weights ${TRAINED_WEIGHT} \
     --thr 0.22 \
-    --n_gpus 2 \
-    --n_processes_per_gpu 1 1 \
+    --n_gpus 4 \
+    --n_processes_per_gpu 1 1 1 1 \
     --cam_png train_log/${SESSION}/result/cam_png \
     --cam_npy train_log/${SESSION}/result/cam_npy \
     --crf train_log/${SESSION}/result/crf_png\
@@ -46,11 +61,21 @@ CUDA_VISIBLE_DEVICES=${GPU} python3 infer.py \
     --crf_alpha 8
 
 # 3. evaluate CAM
-# GT_ROOT=${DATASET_ROOT}/SegmentationClassAug/
-DATA=train  # 记得改train
+GT_ROOT=${DATASET_ROOT}/SegmentationClassAug/
 
 CUDA_VISIBLE_DEVICES=${GPU} python3 eval.py \
-    --datalist data/voc12/${DATA}.txt \
+    --list ${DATASET_ROOT}/ImageSets/Segmentation/${DATA}.txt \
+    --predict_dir train_log/${SESSION}/result/cam_npy/ \
     --gt_dir ${GT_ROOT} \
-    --save_path train_log/${SESSION}/result/${DATA}.txt \
-    --pred_dir train_log/${SESSION}/result/cam_png
+    --comment $SESSION \
+    --logfile train_log/${SESSION}/result/${DATA}.log \
+    --type npy \
+    --curve True
+    # Use curve when type=npy
+    #--list data/voc12/${DATA}.txt \
+
+# # 4. Generate Segmentation pseudo label
+# python pseudo_label_gen.py \
+# --datalist data/voc12/${DATA}_id.txt \
+# --crf_pred train_log/${SESSION}/result/crf_png/crf_5_8 \
+# --label_save_dir train_log/${SESSION}/result/crf_seg
