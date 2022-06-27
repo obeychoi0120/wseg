@@ -488,9 +488,21 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
 
             img2 = F.interpolate(img, size=(128, 128), mode='bilinear', align_corners=True)
             saliency2 = F.interpolate(saliency, size=(128, 128), mode='bilinear', align_corners=True)
+            ulb_img2 = F.interpolate(ulb_img, size=(128, 128), mode='bilinear', align_corners=True) ### strong(?) aug
 
             pred1, cam1, pred_rv1, cam_rv1, feat1 = model(img)
             pred2, cam2, pred_rv2, cam_rv2, feat2 = model(img2)
+            
+            ulb_pred1, ulb_cam1, ulb_pred_rv1, ulb_cam_rv1, ulb_feat1 = model(ulb_img)  ###
+            ulb_pred2, ulb_cam2, ulb_pred_rv2, ulb_cam_rv2, ulb_feat2 = model(ulb_img2) ###
+
+            print('ulb:', ulb_img.size())
+            print('ulb2:', ulb_img2.size())
+            print('cam:', ulb_cam1.size())
+            print('cam2:', ulb_cam2.size())
+            print('cam_rv:', ulb_cam_rv1.size())
+            print('cam_rv2:', ulb_cam_rv2.size())
+            return 
 
             # Classification loss 1
             loss_cls = F.multilabel_soft_margin_loss(pred1[:, :-1], label)

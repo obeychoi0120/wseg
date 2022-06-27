@@ -34,7 +34,7 @@ def get_arguments():
     ### semi-supervised learning ###
     parser.add_argument("--ssl", default=False, type=bool)
     parser.add_argument("--train_ulb_list", default='', type=str)
-    parser.add_argument("--mu", default=1.0, type=float) # ratio of ulb / lb data
+    parser.add_argument("--mu", default=1, type=float) # ratio of ulb / lb data
 
     # network
     parser.add_argument("--network", default="network.vgg16_cls", type=str)

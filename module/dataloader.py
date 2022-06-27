@@ -89,7 +89,7 @@ def get_dataloader(args):
             crop_size=args.crop_size,
             resize_size=args.resize_size
         )
-        train_ulb_loader = DataLoader(train_ulb_dataset, batch_size=args.batch_size*args.mu, shuffle=True,
+        train_ulb_loader = DataLoader(train_ulb_dataset, batch_size=int(args.batch_size*args.mu), shuffle=True,
                                       num_workers=args.num_workers, pin_memory=True, drop_last=True)
         return train_loader, train_ulb_loader, val_loader
     else:
