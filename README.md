@@ -46,7 +46,7 @@ The Pytorch implementation of _Weakly Supervised Semantic Segmentation by Pixel-
 
  \* indicates using densecrf.
 
-   The training results including initial seeds, intermediate products and pseudo masks can be found [here]().
+   The training results including initial seeds, intermediate products and pseudo masks can be found [here](https://drive.google.com/file/d/1TFw-e6P2tG3AYUgBLTw1pO0NVuBoXi4p/view?usp=sharing).
 
 ## Usage
 
@@ -88,7 +88,7 @@ The Pytorch implementation of _Weakly Supervised Semantic Segmentation by Pixel-
 ### Step2: Refine with AffinityNet.
 1. Preparation.
 
-   Prepare the files (```la_crf_dir``` and ```ha_crf_dir```) needed for training AffinityNet. You can also use our processed crf outputs with ```alpha=4/8``` from [here]().
+   Prepare the files (```la_crf_dir``` and ```ha_crf_dir```) needed for training AffinityNet. You can also use our processed crf outputs with ```alpha=la/ha``` from [here]().
    ```
    python aff_prepare.py \
      --voc12_root VOC2012 \
@@ -101,14 +101,14 @@ The Pytorch implementation of _Weakly Supervised Semantic Segmentation by Pixel-
    python aff_train.py \
      --weights $pretrained_model \
      --voc12_root VOC2012 \
-     --la_crf_dir $your_crf_dir_4.0 \
-     --ha_crf_dir $your_crf_dir_8.0 \
+     --la_crf_dir $your_la_crf_dir \
+     --ha_crf_dir $your_ha_crf_dir \
      --session_name $your_session_name
    ```
 
 3. Random walk propagation & Evaluation.
 
-   Use the trained AffinityNet to conduct RandomWalk for refining the CAMs from Step1. Trained model can be found in Model Zoo (https://1drv.ms/u/s!AgGL9MGcRHv0mQXi0SSkbUc2sl8o?e=AY7AzX).
+   Use the trained AffinityNet to conduct RandomWalk for refining the CAMs from Step1. Trained model can be found in Model Zoo.
    ```
    python aff_infer.py \
      --weights $aff_weights \
@@ -128,6 +128,8 @@ The Pytorch implementation of _Weakly Supervised Semantic Segmentation by Pixel-
      --voc12_root VOC2012 \
      --out_rw $your_rw_dir
    ```
+   
+   Pseudo masks of train+aug set can be downloaded here: https://drive.google.com/file/d/1TFw-e6P2tG3AYUgBLTw1pO0NVuBoXi4p/view?usp=sharing.
 
 
 ### Step3: Segmentation training with DeepLab
@@ -154,8 +156,8 @@ For integrating our approach into the [EPS](https://openaccess.thecvf.com/conten
 Then conduct train or inference following instructions above. Segmentation training follows the same repo in ```segmentation```. Trained models & processed files can be download in Model Zoo.
 
 ## Acknowledgements
-We sincerely thank [Yude Wang](https://scholar.google.com/citations?user=5aGpONMAAAAJ&hl=en) for his great work SEAM in CVPR'20. We borrow codes heavly from his repositories [SEAM](https://github.com/YudeWang/SEAM) and [Segmentation](https://github.com/YudeWang/semantic-segmentation-codebase/tree/main/experiment/seamv1-pseudovoc).
-We also thank [Seungho Lee](https://scholar.google.com/citations?hl=zh-CN&user=vUM0nAgAAAAJ) for his [EPS](https://openaccess.thecvf.com/content/CVPR2021/papers/Lee_Railroad_Is_Not_a_Train_Saliency_As_Pseudo-Pixel_Supervision_for_CVPR_2021_paper.pdf) and [jiwoon-ahn](https://github.com/jiwoon-ahn) for his [AffinityNet](https://github.com/jiwoon-ahn/psa) and [IRN](https://github.com/jiwoon-ahn/irn). Without them, we could not finish this work.
+We sincerely thank [Yude Wang](https://scholar.google.com/citations?user=5aGpONMAAAAJ&hl=en) for his great work SEAM in CVPR'20. We borrow codes heavly from his repositories [SEAM](https://github.com/YudeWang/SEAM) and [Segmentation-codebase](https://github.com/YudeWang/semantic-segmentation-codebase/tree/main/experiment/seamv1-pseudovoc).
+We also thank [Seungho Lee](https://scholar.google.com/citations?hl=zh-CN&user=vUM0nAgAAAAJ) for his [EPS](https://openaccess.thecvf.com/content/CVPR2021/papers/Lee_Railroad_Is_Not_a_Train_Saliency_As_Pseudo-Pixel_Supervision_for_CVPR_2021_paper.pdf) and [jiwoon-ahn](https://github.com/jiwoon-ahn) for his [PSA](https://github.com/jiwoon-ahn/psa) and [IRN](https://github.com/jiwoon-ahn/irn). Without them, we could not finish this work.
 
 ## Citation
 ```
