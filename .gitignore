@@ -1,5 +1,10 @@
 result/
 __pycache__
 pretrained/*
+train_log/*
 tblog/*
 segmentation/log/*
+evallog.txt
+.ipynb_checkpoint
+*.pth
+*.params
