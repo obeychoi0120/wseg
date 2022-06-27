@@ -61,9 +61,36 @@ def get_dataloader(args):
                         imutils.HWC_to_CHW,
                         torch.from_numpy
         ]))
+    
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True,
                               num_workers=args.num_workers, pin_memory=True, drop_last=True)
     val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False,
                             num_workers=args.num_workers, pin_memory=True, drop_last=True)
 
-    return train_loader, val_loader
+    ### Unlabeled dataset ###
+    if args.ssl:
+        # train_ulb_dataset = ClassificationDataset(
+        #     args.train_ulb_list,
+        #     img_root=args.data_root,
+        #     transform=transforms.Compose([
+        #         imutils.RandomResizeLong(args.resize_size[0], args.resize_size[1]),
+        #         transforms.RandomHorizontalFlip(),
+        #         transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.1),
+        #         np.asarray,
+        #         Normalize(),
+        #         imutils.RandomCrop(args.crop_size),
+        #         imutils.HWC_to_CHW,
+        #         torch.from_numpy
+        #     ]))
+        train_ulb_dataset = ClassificationDatasetWithSaliency(
+            args.train_ulb_list,
+            img_root=args.data_root,
+            saliency_root=args.saliency_root,
+            crop_size=args.crop_size,
+            resize_size=args.resize_size
+        )
+        train_ulb_loader = DataLoader(train_ulb_dataset, batch_size=args.batch_size*args.mu, shuffle=True,
+                                      num_workers=args.num_workers, pin_memory=True, drop_last=True)
+        return train_loader, train_ulb_loader, val_loader
+    else:
+        return train_loader, val_loader

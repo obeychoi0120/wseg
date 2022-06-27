@@ -8,7 +8,7 @@ from util import pyutils
 from module.dataloader import get_dataloader
 from module.model import get_model
 from module.optimizer import get_optimizer
-from module.train import train_cls, train_eps, train_contrast
+from module.train import train_cls, train_eps, train_contrast, train_contrast_ssl
 from module.validate import validate
 
 cudnn.enabled = True
@@ -30,6 +30,11 @@ def get_arguments():
     parser.add_argument("--iter_size", default=2, type=int)
     parser.add_argument("--crop_size", default=448, type=int)
     parser.add_argument("--resize_size", default=(448, 768))
+
+    ### semi-supervised learning ###
+    parser.add_argument("--ssl", default=False, type=bool)
+    parser.add_argument("--train_ulb_list", default='', type=str)
+    parser.add_argument("--mu", default=1.0, type=float) # ratio of ulb / lb data
 
     # network
     parser.add_argument("--network", default="network.vgg16_cls", type=str)
@@ -77,7 +82,10 @@ if __name__ == '__main__':
     print(vars(args))
 
     # load dataset
-    train_loader, val_loader = get_dataloader(args)
+    if args.ssl: ###
+        train_loader, train_ulb_loader, val_loader = get_dataloader(args)
+    else:
+        train_loader, val_loader = get_dataloader(args)
 
     max_step = (len(open(args.train_list).read().splitlines()) // args.batch_size) * args.max_epoches
 
@@ -100,8 +108,10 @@ if __name__ == '__main__':
     elif args.network_type == 'eps':
         train_eps(train_loader, val_loader, model, optimizer, max_step, args)
     elif args.network_type == 'contrast':
-        train_contrast(train_loader, val_loader, model, optimizer, max_step, args)
-
+        if args.ssl:
+            train_contrast_ssl(train_loader, train_ulb_loader, val_loader, model, optimizer, max_step, args) ###
+        else:
+            train_contrast(train_loader, val_loader, model, optimizer, max_step, args)
     else:
         raise Exception('No appropriate model type')
     

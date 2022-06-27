@@ -459,3 +459,100 @@ def train_contrast(train_dataloader, val_dataloader, model, optimizer, max_step,
             timer.reset_stage()
     torch.save(model.module.state_dict(), os.path.join(args.log_folder, 'checkpoint_contrast.pth'))
 
+
+### contrast + semi-supervised learning ###
+def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, model, optimizer, max_step, args):
+    avg_meter = pyutils.AverageMeter('loss', 'loss_cls', 'loss_sal', 'loss_nce', 'loss_er', 'loss_ecr') ###
+    timer = pyutils.Timer("Session started: ")
+    lb_loader_iter = iter(train_dataloader)
+    ulb_loader_iter = iter(train_ulb_dataloader) ###
+    gamma = 0.10
+    print(args)
+    print('Using Gamma:', gamma)
+    for iteration in range(args.max_iters):
+        for _ in range(args.iter_size):
+            try:
+                img_id, img, saliency, label = next(lb_loader_iter)
+                ulb_img_id, ulb_img, _, _ = next(ulb_loader_iter)   ###
+            except:
+                lb_loader_iter = iter(train_dataloader)
+                img_id, img, saliency, label = next(lb_loader_iter)
+                ulb_loader_iter = iter(train_ulb_dataloader)        ###
+                ulb_img_id, ulb_img, _, _ = next(ulb_loader_iter)   ###
+
+            img = img.cuda(non_blocking=True)
+            saliency = saliency.cuda(non_blocking=True)
+            label = label.cuda(non_blocking=True)
+
+            ulb_img = ulb_img.cuda(non_blocking=True)               ###
+
+            img2 = F.interpolate(img, size=(128, 128), mode='bilinear', align_corners=True)
+            saliency2 = F.interpolate(saliency, size=(128, 128), mode='bilinear', align_corners=True)
+
+            pred1, cam1, pred_rv1, cam_rv1, feat1 = model(img)
+            pred2, cam2, pred_rv2, cam_rv2, feat2 = model(img2)
+
+            # Classification loss 1
+            loss_cls = F.multilabel_soft_margin_loss(pred1[:, :-1], label)
+            loss_sal, fg_map, bg_map, sal_pred = get_eps_loss(cam1, saliency, label, args.tau, args.alpha, intermediate=True)
+            loss_sal_rv, _, _, _ = get_eps_loss(cam_rv1, saliency, label, args.tau, args.alpha, intermediate=True)
+
+            # Classification loss 2
+            loss_cls2 = F.multilabel_soft_margin_loss(pred2[:, :-1], label)
+            loss_sal2, fg_map2, bg_map2, sal_pred2 = get_eps_loss(cam2, saliency2, label, args.tau, args.alpha, intermediate=True)
+            loss_sal_rv2, _, _, _ = get_eps_loss(cam_rv2, saliency2, label, args.tau, args.alpha, intermediate=True)
+
+            # Classification_rv loss
+            bg_score = torch.ones((img.shape[0], 1)).cuda()
+            label_append_bg = torch.cat((label, bg_score), dim=1).unsqueeze(2).unsqueeze(3)  # (N, 21, 1, 1)
+            loss_cls_rv1 = adaptive_min_pooling_loss((cam_rv1 * label_append_bg)[:, :-1, :, :])
+            loss_cls_rv2 = adaptive_min_pooling_loss((cam_rv2 * label_append_bg)[:, :-1, :, :])
+
+            # ER Loss
+            loss_er, loss_ecr = get_er_loss(cam1, cam2, cam_rv1, cam_rv2, label_append_bg)
+
+            # Contrast Loss
+            loss_nce = get_contrast_loss(cam_rv1, cam_rv2, feat1, feat2, label, gamma=gamma, bg_thres=0.10)
+
+            # loss cls = cam cls loss + cam_cv cls loss
+            loss_cls = (loss_cls + loss_cls2) / 2. + (loss_cls_rv1 + loss_cls_rv2) / 2.
+            loss_sal = (loss_sal + loss_sal2) / 2. + (loss_sal_rv + loss_sal_rv2) / 2.
+
+            ### Semi-supervsied Learning ###
+            ################################
+            ################################
+            loss_ssl = 0. ###
+
+
+            loss = loss_cls + loss_sal + loss_nce + loss_er + loss_ecr ###
+
+            avg_meter.add({'loss': loss.item(),
+                           'loss_cls': loss_cls.item(),
+                           'loss_sal': loss_sal.item(),
+                           'loss_nce': loss_nce.item(),
+                           'loss_er': loss_er.item(),
+                           'loss_ecr': loss_ecr.item()})
+                            ###
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            if (optimizer.global_step-1) % 50 == 0:
+                timer.update_progress(optimizer.global_step / max_step)
+
+                print('Iter:%5d/%5d' % (iteration, args.max_iters),
+                      'Loss_Cls:%.4f' % (avg_meter.pop('loss_cls')),
+                      'Loss_Sal:%.4f' % (avg_meter.pop('loss_sal')),
+                      'Loss_Nce:%.4f' % (avg_meter.pop('loss_nce')),
+                      'Loss_ER: %.4f' % (avg_meter.pop('loss_er')),
+                      'Loss_ECR:%.4f' % (avg_meter.pop('loss_ecr')), ###
+                      'imps:%.1f' % ((iteration+1) * args.batch_size / timer.get_stage_elapsed()),
+                      'Fin:%s' % (timer.str_est_finish()),
+                      'lr: %.4f' % (optimizer.param_groups[0]['lr']), flush=True)
+            
+            # Validate 10 times
+            if (optimizer.global_step-1) % (max_step // 10) == 0:
+                validate(model, val_dataloader, iteration, args)
+            timer.reset_stage()
+    torch.save(model.module.state_dict(), os.path.join(args.log_folder, 'checkpoint_contrast.pth'))

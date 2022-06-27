@@ -14,17 +14,17 @@ BASE_WEIGHT=${WEIGHT_ROOT}/ilsvrc-cls_rna-a1_cls1000_ep-0001.params
 
 
 # train classification network with Contrastive Learning
-# CUDA_VISIBLE_DEVICES=${GPU} python3 contrast_train.py \
-#   --session ${SESSION} \
-#   --network network.${BACKBONE} \
-#   --data_root ${IMG_ROOT} \
-#   --saliency_root ${SAL_ROOT} \
-#   --weights ${BASE_WEIGHT} \
-#   --crop_size 448 \
-#   --tau 0.4 \
-#   --max_iters 10000 \
-#   --iter_size 2 \
-#   --batch_size 8
+CUDA_VISIBLE_DEVICES=${GPU} python3 contrast_train.py \
+  --session ${SESSION} \
+  --network network.${BACKBONE} \
+  --data_root ${IMG_ROOT} \
+  --saliency_root ${SAL_ROOT} \
+  --weights ${BASE_WEIGHT} \
+  --crop_size 448 \
+  --tau 0.4 \
+  --max_iters 10000 \
+  --iter_size 2 \
+  --batch_size 8
 
 
 # # Evaluate classification network
@@ -43,7 +43,7 @@ BASE_WEIGHT=${WEIGHT_ROOT}/ilsvrc-cls_rna-a1_cls1000_ep-0001.params
 
 
 # 2. inference CAM
-DATA=val # train / train_aug
+DATA=train_aug # train / train_aug
 TRAINED_WEIGHT=train_log/${SESSION}/checkpoint_contrast.pth
 
 CUDA_VISIBLE_DEVICES=${GPU} python3 contrast_infer.py \
@@ -62,6 +62,7 @@ CUDA_VISIBLE_DEVICES=${GPU} python3 contrast_infer.py \
 
 # 3. evaluate CAM
 GT_ROOT=${DATASET_ROOT}/SegmentationClassAug/
+DATA=train
 
 CUDA_VISIBLE_DEVICES=${GPU} python3 eval.py \
     --list ${DATASET_ROOT}/ImageSets/Segmentation/${DATA}.txt \
@@ -72,10 +73,9 @@ CUDA_VISIBLE_DEVICES=${GPU} python3 eval.py \
     --type npy \
     --curve True
     # Use curve when type=npy
-    #--list data/voc12/${DATA}.txt \
 
-# # 4. Generate Segmentation pseudo label
-# python pseudo_label_gen.py \
-# --datalist data/voc12/${DATA}_id.txt \
-# --crf_pred train_log/${SESSION}/result/crf_png/crf_5_8 \
-# --label_save_dir train_log/${SESSION}/result/crf_seg
+# 4. Generate Segmentation pseudo label
+python pseudo_label_gen.py \
+--datalist data/voc12/${DATA}_id.txt \
+--crf_pred train_log/${SESSION}/result/crf_png/crf_5_8 \
+--label_save_dir train_log/${SESSION}/result/crf_seg
