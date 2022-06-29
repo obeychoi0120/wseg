@@ -34,8 +34,15 @@ def get_arguments():
     ### semi-supervised learning ###
     parser.add_argument("--ssl", default=False, type=bool)
     parser.add_argument("--train_ulb_list", default='', type=str)
-    parser.add_argument("--mu", default=1, type=float) # ratio of ulb / lb data
+    parser.add_argument('--warmup_iter', type=int, default=2000)
+    parser.add_argument("--mu", default=1.0, type=float) # ratio of ulb / lb data
+    parser.add_argument("--ssl_lambda", default=1.0, type=float) # ratio of ssl loss
+    parser.add_argument("--p_cutoff", default=0.95, type=float)
+    parser.add_argument('--T', type=float, default=0.5)
+    parser.add_argument('--hard_label', type=bool, default=True)
 
+    #parser.add_argument("--ema_m", default=0.999, type=float) # 
+    
     # network
     parser.add_argument("--network", default="network.vgg16_cls", type=str)
     parser.add_argument("--weights", required=True, type=str, default='pretrained/ilsvrc-cls_rna-a1_cls1000_ep-0001.params')

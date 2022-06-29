@@ -290,6 +290,41 @@ def max_onehot(x):
     return x
 
 
+def consistency_2d_loss(logits_s, logits_w, name='ce', T=1.0, p_cutoff=0.0, use_hard_labels=True):
+    logits_w = logits_w.detach()
+    if name == 'L2':
+        assert logits_w.size() == logits_s.size()
+        return F.mse_loss(logits_s, logits_w, reduction='mean')
+        
+    elif name == 'ce':
+        pseudo_label = torch.softmax(logits_w, dim=1)
+        max_probs, max_idx = torch.max(pseudo_label, dim=1)
+        mask = max_probs.ge(p_cutoff).float()
+        select = max_probs.ge(p_cutoff).long()
+        # strong_prob, strong_idx = torch.max(torch.softmax(logits_s, dim=-1), dim=-1)
+        # strong_select = strong_prob.ge(p_cutoff).long()
+        # select = select * strong_select * (strong_idx == max_idx)
+        if use_hard_labels:
+            masked_loss = ce_2d_loss(logits_s, max_idx, use_hard_labels, reduction='none') * mask
+        else:
+            pseudo_label = torch.softmax(logits_w / T, dim=1)
+            masked_loss = ce_2d_loss(logits_s, pseudo_label, use_hard_labels) * mask
+        return masked_loss.mean(), mask.mean(), select, max_idx.long()
+
+
+def ce_2d_loss(preds, targets, use_hard_labels=True, reduction='none'):
+    if use_hard_labels:
+        log_pred = F.log_softmax(preds, dim=1)
+        return F.nll_loss(log_pred, targets, reduction=reduction)
+        # return F.cross_entropy(logits, targets, reduction=reduction) this is unstable
+    else:
+        assert preds.shape == targets.shape
+        log_pred = F.log_softmax(preds, dim=1)
+        nll_loss = torch.sum(-targets * log_pred, dim=1)
+        return nll_loss
+
+
+
 def train_cls(train_loader, val_dataloader, model, optimizer, max_step, args):
     avg_meter = pyutils.AverageMeter('loss')
     timer = pyutils.Timer("Session started: ")
@@ -462,7 +497,7 @@ def train_contrast(train_dataloader, val_dataloader, model, optimizer, max_step,
 
 ### contrast + semi-supervised learning ###
 def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, model, optimizer, max_step, args):
-    avg_meter = pyutils.AverageMeter('loss', 'loss_cls', 'loss_sal', 'loss_nce', 'loss_er', 'loss_ecr') ###
+    avg_meter = pyutils.AverageMeter('loss', 'loss_cls', 'loss_sal', 'loss_nce', 'loss_er', 'loss_ecr', 'loss_ssl') ###
     timer = pyutils.Timer("Session started: ")
     lb_loader_iter = iter(train_dataloader)
     ulb_loader_iter = iter(train_ulb_dataloader) ###
@@ -488,21 +523,17 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
 
             img2 = F.interpolate(img, size=(128, 128), mode='bilinear', align_corners=True)
             saliency2 = F.interpolate(saliency, size=(128, 128), mode='bilinear', align_corners=True)
-            ulb_img2 = F.interpolate(ulb_img, size=(128, 128), mode='bilinear', align_corners=True) ### strong(?) aug
 
             pred1, cam1, pred_rv1, cam_rv1, feat1 = model(img)
             pred2, cam2, pred_rv2, cam_rv2, feat2 = model(img2)
             
-            ulb_pred1, ulb_cam1, ulb_pred_rv1, ulb_cam_rv1, ulb_feat1 = model(ulb_img)  ###
-            ulb_pred2, ulb_cam2, ulb_pred_rv2, ulb_cam_rv2, ulb_feat2 = model(ulb_img2) ###
+            if iteration+1 >= args.warmup_iter:
+                ulb_pred1, ulb_cam1, ulb_pred_rv1, ulb_cam_rv1, ulb_feat1 = model(ulb_img)  ###
+                with torch.no_grad():
+                    ulb_img2 = F.interpolate(ulb_img, size=(128, 128), mode='bilinear', align_corners=True) ### strong(?) aug
+                    ulb_pred2, ulb_cam2, ulb_pred_rv2, ulb_cam_rv2, ulb_feat2 = model(ulb_img2) ###
 
-            print('ulb:', ulb_img.size())
-            print('ulb2:', ulb_img2.size())
-            print('cam:', ulb_cam1.size())
-            print('cam2:', ulb_cam2.size())
-            print('cam_rv:', ulb_cam_rv1.size())
-            print('cam_rv2:', ulb_cam_rv2.size())
-            return 
+                    ulb_cam2 = F.interpolate(ulb_cam2, size=(56, 56), mode='bilinear', align_corners=True) 
 
             # Classification loss 1
             loss_cls = F.multilabel_soft_margin_loss(pred1[:, :-1], label)
@@ -530,20 +561,25 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
             loss_cls = (loss_cls + loss_cls2) / 2. + (loss_cls_rv1 + loss_cls_rv2) / 2.
             loss_sal = (loss_sal + loss_sal2) / 2. + (loss_sal_rv + loss_sal_rv2) / 2.
 
+            # Total Loss
+            loss = loss_cls + loss_sal + loss_nce + loss_er + loss_ecr
+
             ### Semi-supervsied Learning ###
-            ################################
-            ################################
-            loss_ssl = 0. ###
-
-
-            loss = loss_cls + loss_sal + loss_nce + loss_er + loss_ecr ###
+            if iteration+1 >= args.warmup_iter: ###
+                loss_ssl, masked_pixel, selected_pixel, pseudo_lb = consistency_2d_loss(ulb_cam1, ulb_cam2, 'ce', 
+                                                                            T=args.T, p_cutoff=args.p_cutoff, use_hard_labels=args.hard_label)
+                loss += loss_ssl * args.ssl_lambda ###
+            else:
+                loss_ssl = torch.zeros(1)
+                masked_pixel = torch.zeros(1)
 
             avg_meter.add({'loss': loss.item(),
                            'loss_cls': loss_cls.item(),
                            'loss_sal': loss_sal.item(),
                            'loss_nce': loss_nce.item(),
                            'loss_er': loss_er.item(),
-                           'loss_ecr': loss_ecr.item()})
+                           'loss_ecr': loss_ecr.item(),
+                           'loss_ssl': loss_ssl.item()})
                             ###
 
             optimizer.zero_grad()
@@ -558,7 +594,9 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
                       'Loss_Sal:%.4f' % (avg_meter.pop('loss_sal')),
                       'Loss_Nce:%.4f' % (avg_meter.pop('loss_nce')),
                       'Loss_ER: %.4f' % (avg_meter.pop('loss_er')),
-                      'Loss_ECR:%.4f' % (avg_meter.pop('loss_ecr')), ###
+                      'Loss_ECR:%.4f' % (avg_meter.pop('loss_ecr')),
+                      'Loss_SSL:%.4f' % (avg_meter.pop('loss_ssl')),    ###
+                      'Mask_ratio:%.4f' % (1.0 - masked_pixel.detach()),  ###
                       'imps:%.1f' % ((iteration+1) * args.batch_size / timer.get_stage_elapsed()),
                       'Fin:%s' % (timer.str_est_finish()),
                       'lr: %.4f' % (optimizer.param_groups[0]['lr']), flush=True)

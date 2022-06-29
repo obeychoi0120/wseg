@@ -68,6 +68,8 @@ def validate(model, data_loader, epoch, args):
         #     print(f'Best classification threshold value is {args.cls_thr}.')
         
         y_pred = (y_pred >= 0.5).float()
+        ap = AP(y_true.numpy(), y_pred.numpy()) * 100.0
+        mAP = ap.mean()
 
         precision, recall, f1, _ = score(y_true.numpy(), y_pred.numpy(), average=None)
 
