@@ -17,7 +17,14 @@ def validate(model, data_loader, epoch, args):
         y_true = list()
         y_pred = list()
         for i, pack in enumerate(data_loader):
-            _, img, label = pack
+            if len(pack) == 3:
+                _, img, label = pack
+            elif len(pack) == 4:
+                _, img, _, label = pack
+            else:
+                img, label = pack
+
+            img = img.cuda(non_blocking=True)
             label = label.cuda(non_blocking=True)
             output = model(img)
             x = output[0]
@@ -31,18 +38,36 @@ def validate(model, data_loader, epoch, args):
             corrects += torch.round(x_sig).eq(label).sum(0).cpu()
 
             y_true.append(label.cpu())
-            y_pred.append(torch.round(x_sig).cpu())
+            #y_pred.append(torch.round(x_sig).cpu())
+            y_pred.append(x_sig.cpu())
 
             tot_cnt += label.size(0)
 
         y_true = torch.cat(y_true, dim=0)
         y_pred = torch.cat(y_pred, dim=0)
-
         corrects = corrects.float() / tot_cnt
         mean_acc = torch.mean(corrects).item() * 100.0
 
-        ap = AP(y_true.numpy(), y_pred.numpy()) * 100.0
-        map = ap.mean()
+        # if not hasattr(args, 'cls_thr'):
+        #     aps = []
+        #     maps = []
+        #     ths = [t/100 for t in range(5, 100, 5)]
+        #     for th in ths:
+        #         y_pred_th = (y_pred >= th).float()
+
+        #         ap = AP(y_true.numpy(), y_pred_th.numpy()) * 100.0
+        #         mAP = ap.mean()
+        #         aps.append(ap)
+        #         maps.append(mAP)
+
+        #     max_idx = maps.index(max(maps))
+        #     ap = aps[max_idx]
+        #     mAP = maps[max_idx]
+        #     args.cls_thr = ths[max_idx]
+
+        #     print(f'Best classification threshold value is {args.cls_thr}.')
+        
+        y_pred = (y_pred >= 0.5).float()
 
         precision, recall, f1, _ = score(y_true.numpy(), y_pred.numpy(), average=None)
 
@@ -56,7 +81,7 @@ def validate(model, data_loader, epoch, args):
     model.train()
     print('loss:', val_loss_meter.pop('loss'))
     #print("Epoch({:03d})\t".format(epoch))
-    print("mAP: {:.2f}\t".format(map))
+    print("mAP: {:.2f}\t".format(mAP))
     print("MeanACC: {:.2f}\t".format(mean_acc))
     print("MeanPRE: {:.4f}\t".format(mean_precision))
     print("MeanREC: {:.4f}\t".format(mean_recall))
@@ -65,7 +90,7 @@ def validate(model, data_loader, epoch, args):
     print("{:10s}: {}\t".format("PRECISION", " ".join(["{:.3f}".format(x) for x in precision.cpu().numpy()])))
     print("{:10s}: {}\t".format("RECALL", " ".join(["{:.3f}".format(x) for x in recall.cpu().numpy()])))
     print("{:10s}: {}\n".format("F1", " ".join(["{:.3f}".format(x) for x in f1.cpu().numpy()])))
-    return
+    return y_pred
 
 
 def average_precision(label, pred):
