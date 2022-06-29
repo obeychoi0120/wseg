@@ -35,6 +35,10 @@ def parse_args():
     parser.add_argument("--cam_npy", default=None, type=str)
     parser.add_argument("--cam_png", default=None, type=str)
     parser.add_argument("--thr", default=0.20, type=float)
+    # for SSL
+    parser.add_argument("--is_unlabeled", default=False, type=bool)
+    parser.add_argument("--pl_method", default='cls_hard', type=str)
+
     args = parser.parse_args()
 
     # model information
@@ -95,7 +99,7 @@ def preprocess(image, scale_list, transform):
     return multi_scale_flipped_image_list
 
 
-def predict_cam(model, image, label, gpu, network_type):
+def predict_cam(model, image, label, gpu, args):
 
     original_image_size = np.asarray(image).shape[:2]
     # preprocess image
@@ -109,16 +113,25 @@ def predict_cam(model, image, label, gpu, network_type):
             image = image.cuda(gpu)
             cam = model.forward_cam(image)
 
-            if network_type == 'cls':
-                cam = F.interpolate(cam, original_image_size, mode='bilinear', align_corners=False)[0]
+            if args.is_unlabeled:
+                if args.pl_method == 'all': # remain all class predictions
+                    label = np.ones(20)
+                elif args.pl_method == 'cls_hard': # use only positive predictions
+                    pred = F.avg_pool2d(cam, kernel_size=(cam.size(-2), cam.size(-1)), padding=0)
+                    label = (torch.sigmoid(pred) >= 0.5).float()
+                    label = label.view(label.size(0), -1).cpu().numpy()[:,:20]
+                else:
+                    label = None
 
+            if args.network_type == 'cls':
+                cam = F.interpolate(cam, original_image_size, mode='bilinear', align_corners=False)[0]
                 cam = cam.cpu().numpy() * label.reshape(20, 1, 1)
 
                 if i % 2 == 1:
                     cam = np.flip(cam, axis=-1)
                 cam_list.append(cam)
 
-            elif network_type == 'contrast':
+            elif args.network_type == 'contrast':
                 cam = F.softmax(cam, dim=1)
                 cam = F.interpolate(cam, original_image_size, mode='bilinear', align_corners=False)[0]
 
@@ -133,7 +146,7 @@ def predict_cam(model, image, label, gpu, network_type):
                     cam_bg = np.flip(cam_bg, axis=-1)
                 cam_list.append((cam_fg, cam_bg))
 
-            elif network_type == 'eps':
+            elif args.network_type == 'eps':
                 cam = F.softmax(cam, dim=1)
                 cam = F.interpolate(cam, original_image_size, mode='bilinear', align_corners=False)[0]
 
@@ -185,8 +198,8 @@ def infer_cam_mp(process_id, image_ids, label_list, cur_gpu):
         img = Image.open(img_path).convert('RGB')
         org_img = np.asarray(img)
 
-        # infer cam_list
-        cam_list = predict_cam(model, img, label, cur_gpu, args.network_type)
+        # infer cam_list(labeled)
+        cam_list = predict_cam(model, img, label, cur_gpu, args)
 
         if args.network_type == 'cls':
             sum_cam = np.sum(cam_list, axis=0)
