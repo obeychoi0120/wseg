@@ -300,6 +300,7 @@ def consistency_2d_loss(logits_s, logits_w, name='ce', T=1.0, p_cutoff=0.0, use_
         pseudo_label = torch.softmax(logits_w, dim=1)
         max_probs, max_idx = torch.max(pseudo_label, dim=1)
         mask = max_probs.ge(p_cutoff).float()
+        mask = torch.where(max_idx < 20, mask, torch.zeros_like(mask)) # ignore background confidence
         select = max_probs.ge(p_cutoff).long()
         # strong_prob, strong_idx = torch.max(torch.softmax(logits_s, dim=-1), dim=-1)
         # strong_select = strong_prob.ge(p_cutoff).long()
