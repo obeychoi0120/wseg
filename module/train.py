@@ -369,13 +369,13 @@ def transform_cam(cam, i, j, h, w, hor_flip, args):
     return aug_cam
 
 
-def consistency_cam_loss(aug_cam, cam_aug, criterion):
-    aug_cam = cam_normalize(aug_cam.flatten(1))
-    cam_aug = cam_normalize(cam_aug.flatten(1))
+def consistency_cam_loss(cam_from_aug, augmented_cam, criterion):
+    cam_from_aug = cam_normalize(cam_from_aug.flatten(1))
+    augmented_cam = cam_normalize(augmented_cam.flatten(1))
 
-    pos = (aug_cam*cam_aug).sum(1)
+    pos = (cam_from_aug * augmented_cam).sum(1)
     bsize = pos.shape[0]
-    neg = torch.mm(aug_cam, aug_cam.transpose(1, 0))
+    neg = torch.mm(cam_from_aug, cam_from_aug.transpose(1, 0))
     neg = neg[(1-torch.eye(bsize)).bool()].view(-1, bsize-1)
     out = torch.cat((pos.view(bsize, 1), neg), dim=1)
     
@@ -592,14 +592,14 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
                 
                 # Augmentation
                 i, j, h, w, hor_flip = [], [], [], [], []
-                ulb_aug_img = torch.zeros_like(ulb_img).cuda(non_blocking=True)
+                ulb_img_aug = torch.zeros_like(ulb_img).cuda(non_blocking=True)
                 for idx, b_img in enumerate(ulb_img):
-                    ti, tj, th, tw = torchvision.transforms.RandomResizedCrop.get_params(ulb_img, scale=(0.08, 1.0),
+                    ti, tj, th, tw = torchvision.transforms.RandomResizedCrop.get_params(b_img, scale=(0.08, 1.0),
                                                                             ratio=(0.75, 1.3333333333333333))
-                    ulb_aug_img[idx] = tvf.resized_crop(b_img, ti, tj, th, tw, size=(b_img.size(-2), b_img.size(-1)))
+                    ulb_img_aug[idx] = tvf.resized_crop(b_img, ti, tj, th, tw, size=(b_img.size(-2), b_img.size(-1)))
                     t_hor_flip = False
                     if random.random() > 0.5:
-                        ulb_aug_img[idx] = hor_flip_tr(ulb_aug_img[idx])
+                        ulb_img_aug[idx] = hor_flip_tr(ulb_img_aug[idx])
                         t_hor_flip = True
                     i.append(ti)
                     j.append(tj)
@@ -608,9 +608,9 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
                     hor_flip.append(t_hor_flip)
 
                 ulb_pred1, ulb_cam1, ulb_pred_rv1, ulb_cam_rv1, ulb_feat1 = model(ulb_img)  ###
-                ulb_aug_pred1, ulb_aug_cam1, ulb_aug_pred_rv1, ulb_aug_cam_rv1, ulb_aug_feat1 = model(ulb_aug_img)  ###
+                ulb_aug_pred1, ulb_aug_cam1, ulb_aug_pred_rv1, ulb_aug_cam_rv1, ulb_aug_feat1 = model(ulb_img_aug)  ###
 
-                aug_ulb_cam1 = transform_cam(ulb_cam1, i, j, h, w, hor_flip, args)
+                ulb_cam1_aug = transform_cam(ulb_cam1, i, j, h, w, hor_flip, args)
 
             # Classification loss 1
             loss_cls = F.multilabel_soft_margin_loss(pred1[:, :-1], label)
@@ -643,7 +643,7 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
 
             ### Semi-supervsied Learning ###
             if iteration+1 >= args.warmup_iter: ###
-                loss_ssl = consistency_cam_loss(ulb_aug_cam1, aug_ulb_cam1, contrastive_criterion)
+                loss_ssl = consistency_cam_loss(ulb_aug_cam1, ulb_cam1_aug, contrastive_criterion)
                 loss += loss_ssl * args.ssl_lambda ###
             else:
                 loss_ssl = torch.zeros(1)
