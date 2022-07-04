@@ -1,6 +1,9 @@
 import os
 import torch
+from torch import nn
 from torch.nn import functional as F
+import torchvision
+from torchvision.transforms import functional as tvf
 from eps import get_eps_loss
 from util import pyutils
 import random
@@ -325,6 +328,59 @@ def ce_2d_loss(preds, targets, use_hard_labels=True, reduction='none'):
         return nll_loss
 
 
+class NCESoftmaxLoss(nn.Module): ###
+    """Softmax cross-entropy loss (a.k.a., info-NCE loss in CPC paper)"""
+    def __init__(self, T=0.01):
+        super(NCESoftmaxLoss, self).__init__()
+        self.T = T
+        self.criterion = nn.CrossEntropyLoss()
+
+    def forward(self, x):
+        # pdb.set_trace()
+        bsz = x.shape[0]
+        x = x.squeeze()
+        x = torch.div(x, self.T)
+        label = torch.zeros([bsz]).cuda().long()
+        loss = self.criterion(x, label)
+        return loss
+
+
+def cam_normalize(x):
+    return x / x.norm(2, dim=1, keepdim=True)
+
+
+def transform_cam(cam, i, j, h, w, hor_flip, args):
+    gpu_batch_len = cam.size(0)
+    cam_size = cam.size(-1)
+    aug_cam = torch.zeros_like(cam).cuda()
+    scale = cam.size(-1) / args.crop_size
+    for b in range(gpu_batch_len):
+        # convert orig_gradcam_mask to image
+        orig_gcam = cam[b]
+        orig_gcam = orig_gcam[:, int(i[b]*scale): int(i[b]*scale) + int(h[b]*scale), 
+                                 int(j[b]*scale): int(j[b]*scale) + int(w[b]*scale)]
+        # We use torch functional to resize without breaking the graph
+        orig_gcam = orig_gcam.unsqueeze(0)
+        orig_gcam = F.interpolate(orig_gcam, size=cam_size, mode='bilinear')
+        orig_gcam = orig_gcam.squeeze()
+        if hor_flip[b]:
+            orig_gcam = orig_gcam.flip(-1)
+        aug_cam[b, :, :] = orig_gcam
+    return aug_cam
+
+
+def consistency_cam_loss(aug_cam, cam_aug, criterion):
+    aug_cam = cam_normalize(aug_cam.flatten(1))
+    cam_aug = cam_normalize(cam_aug.flatten(1))
+
+    pos = (aug_cam*cam_aug).sum(1)
+    bsize = pos.shape[0]
+    neg = torch.mm(aug_cam, aug_cam.transpose(1, 0))
+    neg = neg[(1-torch.eye(bsize)).bool()].view(-1, bsize-1)
+    out = torch.cat((pos.view(bsize, 1), neg), dim=1)
+    
+    return criterion(out)
+
 
 def train_cls(train_loader, val_dataloader, model, optimizer, max_step, args):
     avg_meter = pyutils.AverageMeter('loss')
@@ -497,7 +553,137 @@ def train_contrast(train_dataloader, val_dataloader, model, optimizer, max_step,
 
 
 ### contrast + semi-supervised learning ###
+# T(f(x)) <=> f(T(x)) (CAM-wise paring)
 def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, model, optimizer, max_step, args):
+    avg_meter = pyutils.AverageMeter('loss', 'loss_cls', 'loss_sal', 'loss_nce', 'loss_er', 'loss_ecr', 'loss_ssl') ###
+    timer = pyutils.Timer("Session started: ")
+    lb_loader_iter = iter(train_dataloader)
+    ulb_loader_iter = iter(train_ulb_dataloader) ###
+    gamma = 0.10
+    contrastive_criterion = NCESoftmaxLoss(args.T).cuda() ###
+    hor_flip_tr = torchvision.transforms.RandomHorizontalFlip() ###
+    print(args)
+    print('Using Gamma:', gamma)
+    for iteration in range(args.max_iters):
+        for _ in range(args.iter_size):
+            try:
+                img_id, img, saliency, label = next(lb_loader_iter)
+                ulb_img_id, ulb_img, _, _ = next(ulb_loader_iter)   ###
+            except:
+                lb_loader_iter = iter(train_dataloader)
+                img_id, img, saliency, label = next(lb_loader_iter)
+                ulb_loader_iter = iter(train_ulb_dataloader)        ###
+                ulb_img_id, ulb_img, _, _ = next(ulb_loader_iter)   ###
+
+            img = img.cuda(non_blocking=True)
+            saliency = saliency.cuda(non_blocking=True)
+            label = label.cuda(non_blocking=True)
+
+            ulb_img = ulb_img.cuda(non_blocking=True)               ###
+
+            img2 = F.interpolate(img, size=(128, 128), mode='bilinear', align_corners=True)
+            saliency2 = F.interpolate(saliency, size=(128, 128), mode='bilinear', align_corners=True)
+
+            pred1, cam1, pred_rv1, cam_rv1, feat1 = model(img)
+            pred2, cam2, pred_rv2, cam_rv2, feat2 = model(img2)
+            
+            if iteration+1 >= args.warmup_iter:
+                ulb_img = torch.cat([img, ulb_img], dim=0)
+                
+                # Augmentation
+                i, j, h, w, hor_flip = [], [], [], [], []
+                ulb_aug_img = torch.zeros_like(ulb_img).cuda(non_blocking=True)
+                for idx, b_img in enumerate(ulb_img):
+                    ti, tj, th, tw = torchvision.transforms.RandomResizedCrop.get_params(ulb_img, scale=(0.08, 1.0),
+                                                                            ratio=(0.75, 1.3333333333333333))
+                    ulb_aug_img[idx] = tvf.resized_crop(b_img, ti, tj, th, tw, size=(b_img.size(-2), b_img.size(-1)))
+                    t_hor_flip = False
+                    if random.random() > 0.5:
+                        ulb_aug_img[idx] = hor_flip_tr(ulb_aug_img[idx])
+                        t_hor_flip = True
+                    i.append(ti)
+                    j.append(tj)
+                    h.append(th)
+                    w.append(tw)
+                    hor_flip.append(t_hor_flip)
+
+                ulb_pred1, ulb_cam1, ulb_pred_rv1, ulb_cam_rv1, ulb_feat1 = model(ulb_img)  ###
+                ulb_aug_pred1, ulb_aug_cam1, ulb_aug_pred_rv1, ulb_aug_cam_rv1, ulb_aug_feat1 = model(ulb_aug_img)  ###
+
+                aug_ulb_cam1 = transform_cam(ulb_cam1, i, j, h, w, hor_flip, args)
+
+            # Classification loss 1
+            loss_cls = F.multilabel_soft_margin_loss(pred1[:, :-1], label)
+            loss_sal, fg_map, bg_map, sal_pred = get_eps_loss(cam1, saliency, label, args.tau, args.alpha, intermediate=True)
+            loss_sal_rv, _, _, _ = get_eps_loss(cam_rv1, saliency, label, args.tau, args.alpha, intermediate=True)
+
+            # Classification loss 2
+            loss_cls2 = F.multilabel_soft_margin_loss(pred2[:, :-1], label)
+            loss_sal2, fg_map2, bg_map2, sal_pred2 = get_eps_loss(cam2, saliency2, label, args.tau, args.alpha, intermediate=True)
+            loss_sal_rv2, _, _, _ = get_eps_loss(cam_rv2, saliency2, label, args.tau, args.alpha, intermediate=True)
+
+            # Classification_rv loss
+            bg_score = torch.ones((img.shape[0], 1)).cuda()
+            label_append_bg = torch.cat((label, bg_score), dim=1).unsqueeze(2).unsqueeze(3)  # (N, 21, 1, 1)
+            loss_cls_rv1 = adaptive_min_pooling_loss((cam_rv1 * label_append_bg)[:, :-1, :, :])
+            loss_cls_rv2 = adaptive_min_pooling_loss((cam_rv2 * label_append_bg)[:, :-1, :, :])
+
+            # ER Loss
+            loss_er, loss_ecr = get_er_loss(cam1, cam2, cam_rv1, cam_rv2, label_append_bg)
+
+            # Contrast Loss
+            loss_nce = get_contrast_loss(cam_rv1, cam_rv2, feat1, feat2, label, gamma=gamma, bg_thres=0.10)
+
+            # loss cls = cam cls loss + cam_cv cls loss
+            loss_cls = (loss_cls + loss_cls2) / 2. + (loss_cls_rv1 + loss_cls_rv2) / 2.
+            loss_sal = (loss_sal + loss_sal2) / 2. + (loss_sal_rv + loss_sal_rv2) / 2.
+
+            # Total Loss
+            loss = loss_cls + loss_sal + loss_nce + loss_er + loss_ecr
+
+            ### Semi-supervsied Learning ###
+            if iteration+1 >= args.warmup_iter: ###
+                loss_ssl = consistency_cam_loss(ulb_aug_cam1, aug_ulb_cam1, contrastive_criterion)
+                loss += loss_ssl * args.ssl_lambda ###
+            else:
+                loss_ssl = torch.zeros(1)
+
+            avg_meter.add({'loss': loss.item(),
+                           'loss_cls': loss_cls.item(),
+                           'loss_sal': loss_sal.item(),
+                           'loss_nce': loss_nce.item(),
+                           'loss_er': loss_er.item(),
+                           'loss_ecr': loss_ecr.item(),
+                           'loss_ssl': loss_ssl.item()})
+                            ###
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            if (optimizer.global_step-1) % 50 == 0:
+                timer.update_progress(optimizer.global_step / max_step)
+
+                print('Iter:%5d/%5d' % (iteration, args.max_iters),
+                      'Loss_Cls:%.4f' % (avg_meter.pop('loss_cls')),
+                      'Loss_Sal:%.4f' % (avg_meter.pop('loss_sal')),
+                      'Loss_Nce:%.4f' % (avg_meter.pop('loss_nce')),
+                      'Loss_ER: %.4f' % (avg_meter.pop('loss_er')),
+                      'Loss_ECR:%.4f' % (avg_meter.pop('loss_ecr')),
+                      'Loss_SSL:%.4f' % (avg_meter.pop('loss_ssl')),    ###
+                      'imps:%.1f' % ((iteration+1) * args.batch_size / timer.get_stage_elapsed()),
+                      'Fin:%s' % (timer.str_est_finish()),
+                      'lr: %.4f' % (optimizer.param_groups[0]['lr']), flush=True)
+            
+            # Validate 10 times
+            if (optimizer.global_step-1) % (max_step // 10) == 0:
+                validate(model, val_dataloader, iteration, args)
+            timer.reset_stage()
+    torch.save(model.module.state_dict(), os.path.join(args.log_folder, 'checkpoint_contrast.pth'))
+
+
+# Low resolution CAM as Pseudo-label
+def train_contrast_ssl_lowres(train_dataloader, train_ulb_dataloader, val_dataloader, model, optimizer, max_step, args):
     avg_meter = pyutils.AverageMeter('loss', 'loss_cls', 'loss_sal', 'loss_nce', 'loss_er', 'loss_ecr', 'loss_ssl') ###
     timer = pyutils.Timer("Session started: ")
     lb_loader_iter = iter(train_dataloader)
@@ -529,6 +715,7 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
             pred2, cam2, pred_rv2, cam_rv2, feat2 = model(img2)
             
             if iteration+1 >= args.warmup_iter:
+                ulb_img = torch.cat([img, ulb_img], dim=0)
                 ulb_pred1, ulb_cam1, ulb_pred_rv1, ulb_cam_rv1, ulb_feat1 = model(ulb_img)  ###
                 with torch.no_grad():
                     ulb_img2 = F.interpolate(ulb_img, size=(128, 128), mode='bilinear', align_corners=True) ### strong(?) aug
