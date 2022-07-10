@@ -66,11 +66,12 @@ class ClassificationDatasetWithSaliency(ImageDataset):
     Classification Dataset with saliency
     """
     def __init__(self, img_id_list_file, img_root, saliency_root=None,
-                 crop_size=224, resize_size=(256, 512)):
+                 crop_size=224, resize_size=(256, 512), aug_type=None):
         super().__init__(img_id_list_file, img_root, transform=None)
         self.saliency_root = saliency_root
         self.crop_size = crop_size
         self.resize_size = resize_size
+        self.aug_type = aug_type
 
         self.resize = RandomResizeLong(resize_size[0], resize_size[1])
         self.color = transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.1)
@@ -80,12 +81,26 @@ class ClassificationDatasetWithSaliency(ImageDataset):
 
     def __getitem__(self, idx):
         img_id = self.img_id_list[idx]
+
         img = PIL.Image.open(os.path.join(self.img_root, img_id + '.jpg')).convert("RGB")
         saliency = PIL.Image.open(get_saliency_path(img_id, self.saliency_root)).convert("RGB")
-        img, saliency = self.transform_with_mask(img, saliency)
-
+        
         label = torch.from_numpy(self.label_list[idx])
-        return img_id, img, saliency, label
+        img1, saliency1 = self.transform_with_mask(img, saliency)
+
+        ### Normal 
+        if self.aug_type is None:
+            return img_id, img1, saliency1, label
+        # Another weak augmentation (Mean Teacher)
+        elif self.aug_type == 'weak':
+            img2, saliency2 = self.transform_with_mask(img, saliency)
+            return img_id, img1, saliency1, img2, saliency2, label
+        # with strong augmetation (FixMatch)
+        elif self.aug_type == 'strong':
+            pass ###
+        else:
+            return
+        ###
 
     def transform_with_mask(self, img, mask):
         # randomly resize

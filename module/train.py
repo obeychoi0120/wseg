@@ -8,6 +8,7 @@ from eps import get_eps_loss
 from util import pyutils
 import random
 import numpy as np
+from copy import deepcopy
 
 from module.validate import validate
 
@@ -293,6 +294,15 @@ def max_onehot(x):
     return x
 
 
+##################################################################################################
+
+
+def consistency_loss(logits_w1, logits_w2):
+    logits_w2 = logits_w2.detach()
+    assert logits_w1.size() == logits_w2.size()
+    return F.mse_loss(torch.softmax(logits_w1,dim=-1), torch.softmax(logits_w2,dim=-1), reduction='mean')
+
+
 def consistency_2d_loss(logits_s, logits_w, name='ce', T=1.0, p_cutoff=0.0, use_hard_labels=True):
     logits_w = logits_w.detach()
     if name == 'L2':
@@ -380,6 +390,51 @@ def consistency_cam_loss(cam_from_aug, augmented_cam, criterion):
     out = torch.cat((pos.view(bsize, 1), neg), dim=1)
     
     return criterion(out)
+
+
+class EMA:
+    """
+    Implementation from https://fyubang.com/2019/06/01/ema/
+    """
+
+    def __init__(self, model, decay):
+        self.model = model
+        self.decay = decay
+        self.shadow = {}
+        self.backup = {}
+
+    def load(self, ema_model):
+        for name, param in ema_model.named_parameters():
+            self.shadow[name] = param.data.clone()
+
+    def register(self):
+        for name, param in self.model.named_parameters():
+            if param.requires_grad:
+                self.shadow[name] = param.data.clone()
+
+    def update(self):
+        for name, param in self.model.named_parameters():
+            if param.requires_grad:
+                assert name in self.shadow
+                new_average = (1.0 - self.decay) * param.data + self.decay * self.shadow[name]
+                self.shadow[name] = new_average.clone()
+
+    def apply_shadow(self):
+        for name, param in self.model.named_parameters():
+            if param.requires_grad:
+                assert name in self.shadow
+                self.backup[name] = param.data
+                param.data = self.shadow[name]
+
+    def restore(self):
+        for name, param in self.model.named_parameters():
+            if param.requires_grad:
+                assert name in self.backup
+                param.data = self.backup[name]
+        self.backup = {}
+
+
+##################################################################################################
 
 
 def train_cls(train_loader, val_dataloader, model, optimizer, max_step, args):
@@ -553,8 +608,133 @@ def train_contrast(train_dataloader, val_dataloader, model, optimizer, max_step,
 
 
 ### contrast + semi-supervised learning ###
-# T(f(x)) <=> f(T(x)) (CAM-wise paring)
+# Mean Teacher
 def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, model, optimizer, max_step, args):
+    avg_meter = pyutils.AverageMeter('loss', 'loss_cls', 'loss_sal', 'loss_nce', 'loss_er', 'loss_ecr', 'loss_ssl') ###
+    timer = pyutils.Timer("Session started: ")
+    lb_loader_iter = iter(train_dataloader)
+    ulb_loader_iter = iter(train_ulb_dataloader) ###
+    gamma = 0.10
+    # EMA
+    #ema_model = deepcopy(model)
+    ema = EMA(model, args.ema_m)
+    ema.register()
+    #if args.resume == True:
+    #    ema.load(ema_model)
+    print(args)
+    print('Using Gamma:', gamma)
+    for iteration in range(args.max_iters):
+        for _ in range(args.iter_size):
+            try:
+                img_id, img, saliency, label = next(lb_loader_iter)
+                ulb_img_id, ulb_img, _, ulb_img2, _, _ = next(ulb_loader_iter)   ###
+            except:
+                lb_loader_iter = iter(train_dataloader)
+                img_id, img, saliency, label = next(lb_loader_iter)
+                ulb_loader_iter = iter(train_ulb_dataloader)        ###
+                ulb_img_id, ulb_img, _, ulb_img2, _, _ = next(ulb_loader_iter)   ###
+                
+            img = img.cuda(non_blocking=True)
+            saliency = saliency.cuda(non_blocking=True)
+            label = label.cuda(non_blocking=True)
+            
+            ulb_img = ulb_img.cuda(non_blocking=True)               ###
+            ulb_img2 = ulb_img2.cuda(non_blocking=True)               ###
+
+            img2 = F.interpolate(img, size=(128, 128), mode='bilinear', align_corners=True)
+            saliency2 = F.interpolate(saliency, size=(128, 128), mode='bilinear', align_corners=True)
+
+            pred1, cam1, pred_rv1, cam_rv1, feat1 = model(img)
+            pred2, cam2, pred_rv2, cam_rv2, feat2 = model(img2)
+            
+            # Ulb data
+            if iteration+1 >= args.warmup_iter:
+                #ulb_img = torch.cat([img, ulb_img], dim=0)
+                ulb_pred1, ulb_cam1, ulb_pred_rv1, ulb_cam_rv1, ulb_feat1 = model(ulb_img)  ###
+                
+                ###
+                ema.apply_shadow()
+                with torch.no_grad():
+                    ulb_pred2, ulb_cam2, ulb_pred_rv2, ulb_cam_rv2, ulb_feat2 = model(ulb_img2)
+                ema.restore()
+                ###
+
+            # Classification loss 1
+            loss_cls = F.multilabel_soft_margin_loss(pred1[:, :-1], label)
+            loss_sal, fg_map, bg_map, sal_pred = get_eps_loss(cam1, saliency, label, args.tau, args.alpha, intermediate=True)
+            loss_sal_rv, _, _, _ = get_eps_loss(cam_rv1, saliency, label, args.tau, args.alpha, intermediate=True)
+
+            # Classification loss 2
+            loss_cls2 = F.multilabel_soft_margin_loss(pred2[:, :-1], label)
+
+            loss_sal2, fg_map2, bg_map2, sal_pred2 = get_eps_loss(cam2, saliency2, label, args.tau, args.alpha, intermediate=True)
+
+            loss_sal_rv2, _, _, _ = get_eps_loss(cam_rv2, saliency2, label, args.tau, args.alpha, intermediate=True)
+
+            bg_score = torch.ones((img.shape[0], 1)).cuda()
+            label_append_bg = torch.cat((label, bg_score), dim=1).unsqueeze(2).unsqueeze(3)  # (N, 21, 1, 1)
+            loss_cls_rv1 = adaptive_min_pooling_loss((cam_rv1 * label_append_bg)[:, :-1, :, :])
+            loss_cls_rv2 = adaptive_min_pooling_loss((cam_rv2 * label_append_bg)[:, :-1, :, :])
+
+            loss_er, loss_ecr = get_er_loss(cam1, cam2, cam_rv1, cam_rv2, label_append_bg)
+
+            loss_nce = get_contrast_loss(cam_rv1, cam_rv2, feat1, feat2, label, gamma=gamma, bg_thres=0.10)
+
+            # loss cls = cam cls loss + cam_cv cls loss
+            loss_cls = (loss_cls + loss_cls2) / 2. + (loss_cls_rv1 + loss_cls_rv2) / 2.
+
+            loss_sal = (loss_sal + loss_sal2) / 2. + (loss_sal_rv + loss_sal_rv2) / 2.
+
+            loss = loss_cls + loss_sal + loss_nce + loss_er + loss_ecr
+            
+            ### Semi-supervsied Learning ###
+            if iteration+1 >= args.warmup_iter: ###
+                loss_ssl = consistency_loss(ulb_pred1, ulb_pred2)
+                loss += loss_ssl * args.ssl_lambda ###
+            else:
+                loss_ssl = torch.zeros(1)
+
+            avg_meter.add({'loss': loss.item(),
+                           'loss_cls': loss_cls.item(),
+                           'loss_sal': loss_sal.item(),
+                           'loss_nce': loss_nce.item(),
+                           'loss_er': loss_er.item(),
+                           'loss_ecr': loss_ecr.item(),
+                           'loss_ssl': loss_ssl.item()})
+                            ###
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            ema.update() ########
+
+            if (optimizer.global_step-1) % 50 == 0:
+                timer.update_progress(optimizer.global_step / max_step)
+
+                print('Iter:%5d/%5d' % (iteration, args.max_iters),
+                      'Loss_Cls:%.4f' % (avg_meter.pop('loss_cls')),
+                      'Loss_Sal:%.4f' % (avg_meter.pop('loss_sal')),
+                      'Loss_Nce:%.4f' % (avg_meter.pop('loss_nce')),
+                      'Loss_ER: %.4f' % (avg_meter.pop('loss_er')),
+                      'Loss_ECR:%.4f' % (avg_meter.pop('loss_ecr')),
+                      'Loss_SSL:%.4f' % (avg_meter.pop('loss_ssl')),    ###
+                      'imps:%.1f' % ((iteration+1) * args.batch_size / timer.get_stage_elapsed()),
+                      'Fin:%s' % (timer.str_est_finish()),
+                      'lr: %.4f' % (optimizer.param_groups[0]['lr']), flush=True)
+            
+            # Validate 10 times
+            if (optimizer.global_step-1) % (max_step // 10) == 0:
+                validate(model, val_dataloader, iteration, args)
+                # EMA model
+                ema.apply_shadow() ###
+                validate(model, val_dataloader, iteration, args) ###
+                ema.restore() ###
+            timer.reset_stage()
+    torch.save(model.module.state_dict(), os.path.join(args.log_folder, 'checkpoint_contrast.pth'))
+
+
+# T(f(x)) <=> f(T(x)) (CAM-wise paring)
+def train_contrast_ssl_cam_consistency_reg(train_dataloader, train_ulb_dataloader, val_dataloader, model, optimizer, max_step, args):
     avg_meter = pyutils.AverageMeter('loss', 'loss_cls', 'loss_sal', 'loss_nce', 'loss_er', 'loss_ecr', 'loss_ssl') ###
     timer = pyutils.Timer("Session started: ")
     lb_loader_iter = iter(train_dataloader)
