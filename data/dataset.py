@@ -101,8 +101,9 @@ class ClassificationDatasetWithSaliency(ImageDataset):
         # with strong augmetation (FixMatch)
         elif self.aug_type == 'strong':
             ### TODO: mask transform, return aug information
-            img2, saliency2 = self.transform_with_mask(img, saliency)
-            img2 = self.strong_transform(img2)
+            img2 = self.strong_transform(img)
+            img2, saliency2 = self.transform_with_mask(img2, saliency)
+            
             return img_id, img1, saliency1, img2, saliency2, label
         else:
             return
