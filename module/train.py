@@ -609,7 +609,7 @@ def train_contrast(train_dataloader, val_dataloader, model, optimizer, max_step,
                       'lr: %.4f' % (optimizer.param_groups[0]['lr']), flush=True)
             
             # Validate 10 times
-            if (iteration-1) % (max_step // 10) == 0: # optimizer.global_step
+            if (optimizer.global_step-1) % (max_step // 10) == 0:
                 # loss_, mAP, mean_acc, mean_precision, mean_recall, mean_f1, corrects, precision, recall, f1
                 tb_dict['val/loss'], tb_dict['val/mAP'], tb_dict['val/mean_acc'], tb_dict['val/mean_precision'], \
                 tb_dict['val/mean_recall'], tb_dict['val/mean_f1'], acc, precision, recall, f1 = validate(model, val_dataloader, iteration, args) ###
@@ -743,7 +743,7 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
                       'lr: %.4f' % (tb_dict['train/lr']), flush=True)
             
             # Validate 10 times
-            if (iteration-1) % (max_step // 10) == 0: # optimizer.global_step
+            if (optimizer.global_step-1) % (max_step // 10) == 0:
                 # loss_, mAP, mean_acc, mean_precision, mean_recall, mean_f1, corrects, precision, recall, f1
                 tb_dict['val/loss'], tb_dict['val/mAP'], tb_dict['val/mean_acc'], tb_dict['val/mean_precision'], \
                 tb_dict['val/mean_recall'], tb_dict['val/mean_f1'], acc, precision, recall, f1 = validate(model, val_dataloader, iteration, args) ###
