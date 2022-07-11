@@ -42,6 +42,9 @@ class AverageMeter:
             v = self.get(key)
             self.__data[key] = [0.0, 0]
             return v
+    
+    def get_keys(self):
+        return self.__data.keys()
 
 
 class Timer:

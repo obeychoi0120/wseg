@@ -2,6 +2,7 @@ import os
 import torch
 from torch import nn
 from torch.nn import functional as F
+from torch.utils.tensorboard import SummaryWriter
 import torchvision
 from torchvision.transforms import functional as tvf
 from eps import get_eps_loss
@@ -526,6 +527,7 @@ def train_eps(train_dataloader, val_dataloader, model, optimizer, max_step, args
 
 def train_contrast(train_dataloader, val_dataloader, model, optimizer, max_step, args):
     avg_meter = pyutils.AverageMeter('loss', 'loss_cls', 'loss_sal', 'loss_nce', 'loss_er', 'loss_ecr')
+    tb_writer = SummaryWriter(args.log_folder)
     timer = pyutils.Timer("Session started: ")
     loader_iter = iter(train_dataloader)
     gamma = 0.10
@@ -587,22 +589,33 @@ def train_contrast(train_dataloader, val_dataloader, model, optimizer, max_step,
             loss.backward()
             optimizer.step()
 
+            # tblog
+            tb_dict = {}
+            for k in avg_meter.get_keys():
+                tb_dict['train/' + k] = avg_meter.pop(k)
+            tb_dict['train/lr'] = optimizer.param_groups[0]['lr']
+            
             if (optimizer.global_step-1) % 50 == 0:
                 timer.update_progress(optimizer.global_step / max_step)
 
                 print('Iter:%5d/%5d' % (iteration, args.max_iters),
-                      'Loss_Cls:%.4f' % (avg_meter.pop('loss_cls')),
-                      'Loss_Sal:%.4f' % (avg_meter.pop('loss_sal')),
-                      'Loss_Nce:%.4f' % (avg_meter.pop('loss_nce')),
-                      'Loss_ER: %.4f' % (avg_meter.pop('loss_er')),
-                      'Loss_ECR:%.4f' % (avg_meter.pop('loss_ecr')),
+                      'Loss_Cls:%.4f' % (tb_dict['train/loss_cls']),
+                      'Loss_Sal:%.4f' % (tb_dict['train/loss_sal']),
+                      'Loss_Nce:%.4f' % (tb_dict['train/loss_nce']),
+                      'Loss_ER: %.4f' % (tb_dict['train/loss_er']),
+                      'Loss_ECR:%.4f' % (tb_dict['train/loss_ecr']),
                       'imps:%.1f' % ((iteration+1) * args.batch_size / timer.get_stage_elapsed()),
                       'Fin:%s' % (timer.str_est_finish()),
                       'lr: %.4f' % (optimizer.param_groups[0]['lr']), flush=True)
             
             # Validate 10 times
-            if (optimizer.global_step-1) % (max_step // 10) == 0:
-                validate(model, val_dataloader, iteration, args)
+            if (iteration-1) % (max_step // 10) == 0: # optimizer.global_step
+                # loss_, mAP, mean_acc, mean_precision, mean_recall, mean_f1, corrects, precision, recall, f1
+                tb_dict['val/loss'], tb_dict['val/mAP'], tb_dict['val/mean_acc'], tb_dict['val/mean_precision'], \
+                tb_dict['val/mean_recall'], tb_dict['val/mean_f1'], acc, precision, recall, f1 = validate(model, val_dataloader, iteration, args) ###
+            # tblog update
+            for k, value in tb_dict.items():
+                tb_writer.add_scalar(k, value, iteration)
             timer.reset_stage()
     torch.save(model.module.state_dict(), os.path.join(args.log_folder, 'checkpoint_contrast.pth'))
 
@@ -611,6 +624,7 @@ def train_contrast(train_dataloader, val_dataloader, model, optimizer, max_step,
 # Mean Teacher
 def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, model, optimizer, max_step, args):
     avg_meter = pyutils.AverageMeter('loss', 'loss_cls', 'loss_sal', 'loss_nce', 'loss_er', 'loss_ecr', 'loss_ssl') ###
+    tb_writer = SummaryWriter(args.log_folder) ###
     timer = pyutils.Timer("Session started: ")
     lb_loader_iter = iter(train_dataloader)
     ulb_loader_iter = iter(train_ulb_dataloader) ###
@@ -708,27 +722,44 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
             optimizer.step()
             ema.update() ########
 
+            tb_dict = {}
+            ### tblog ###
+            for k in avg_meter.get_keys():
+                tb_dict['train/' + k] = avg_meter.pop(k)
+            tb_dict['train/lr'] = optimizer.param_groups[0]['lr']
+
             if (optimizer.global_step-1) % 50 == 0:
                 timer.update_progress(optimizer.global_step / max_step)
 
                 print('Iter:%5d/%5d' % (iteration, args.max_iters),
-                      'Loss_Cls:%.4f' % (avg_meter.pop('loss_cls')),
-                      'Loss_Sal:%.4f' % (avg_meter.pop('loss_sal')),
-                      'Loss_Nce:%.4f' % (avg_meter.pop('loss_nce')),
-                      'Loss_ER: %.4f' % (avg_meter.pop('loss_er')),
-                      'Loss_ECR:%.4f' % (avg_meter.pop('loss_ecr')),
-                      'Loss_SSL:%.4f' % (avg_meter.pop('loss_ssl')),    ###
+                      'Loss_Cls:%.4f' % (tb_dict['train/loss_cls']),
+                      'Loss_Sal:%.4f' % (tb_dict['train/loss_sal']),
+                      'Loss_Nce:%.4f' % (tb_dict['train/loss_nce']),
+                      'Loss_ER: %.4f' % (tb_dict['train/loss_er']),
+                      'Loss_ECR:%.4f' % (tb_dict['train/loss_ecr']),
+                      'Loss_SSL:%.4f' % (tb_dict['train/loss_ssl']),    ###
                       'imps:%.1f' % ((iteration+1) * args.batch_size / timer.get_stage_elapsed()),
                       'Fin:%s' % (timer.str_est_finish()),
-                      'lr: %.4f' % (optimizer.param_groups[0]['lr']), flush=True)
+                      'lr: %.4f' % (tb_dict['train/lr']), flush=True)
             
             # Validate 10 times
-            if (optimizer.global_step-1) % (max_step // 10) == 0:
-                validate(model, val_dataloader, iteration, args)
+            if (iteration-1) % (max_step // 10) == 0: # optimizer.global_step
+                # loss_, mAP, mean_acc, mean_precision, mean_recall, mean_f1, corrects, precision, recall, f1
+                tb_dict['val/loss'], tb_dict['val/mAP'], tb_dict['val/mean_acc'], tb_dict['val/mean_precision'], \
+                tb_dict['val/mean_recall'], tb_dict['val/mean_f1'], acc, precision, recall, f1 = validate(model, val_dataloader, iteration, args) ###
                 # EMA model
                 ema.apply_shadow() ###
-                validate(model, val_dataloader, iteration, args) ###
+                tb_dict['val_ema/loss'], tb_dict['val_ema/mAP'], tb_dict['val_ema/mean_acc'], tb_dict['val_ema/mean_precision'], \
+                tb_dict['val_ema/mean_recall'], tb_dict['val_ema/mean_f1'], ema_acc, ema_precision, ema_recall, ema_f1 = validate(model, val_dataloader, iteration, args) ###
                 ema.restore() ###
+            
+            ### tblog update ###
+            for k, value in tb_dict.items():
+                tb_writer.add_scalar(k, value, iteration)
+            # for arr, k in zip([acc, precision, recall, f1, ema_acc, ema_precision, ema_recall, ema_f1]
+            #                 ['acc', 'precision', 'recall', 'f1', 'ema_acc', 'ema_precision', 'ema_recall', 'ema_f1']):
+            #     tb_writer.
+
             timer.reset_stage()
     torch.save(model.module.state_dict(), os.path.join(args.log_folder, 'checkpoint_contrast.pth'))
 

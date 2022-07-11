@@ -81,18 +81,20 @@ def validate(model, data_loader, epoch, args):
         mean_f1 = f1.mean()
 
     model.train()
-    print('loss:', val_loss_meter.pop('loss'))
+    loss_ = val_loss_meter.pop('loss')
+    corrects, precision, recall, f1 = corrects.cpu().numpy(), precision.cpu().numpy(), recall.cpu().numpy(), f1.cpu().numpy()
+    print('loss:', loss_)
     #print("Epoch({:03d})\t".format(epoch))
     print("mAP: {:.2f}\t".format(mAP))
     print("MeanACC: {:.2f}\t".format(mean_acc))
     print("MeanPRE: {:.4f}\t".format(mean_precision))
     print("MeanREC: {:.4f}\t".format(mean_recall))
     print("MeanF1: {:.4f}\t".format(mean_f1))
-    print("{:10s}: {}\t".format("ClassACC", " ".join(["{:.3f}".format(x) for x in corrects.cpu().numpy()])))
-    print("{:10s}: {}\t".format("PRECISION", " ".join(["{:.3f}".format(x) for x in precision.cpu().numpy()])))
-    print("{:10s}: {}\t".format("RECALL", " ".join(["{:.3f}".format(x) for x in recall.cpu().numpy()])))
-    print("{:10s}: {}\n".format("F1", " ".join(["{:.3f}".format(x) for x in f1.cpu().numpy()])))
-    return y_pred
+    print("{:10s}: {}\t".format("ClassACC", " ".join(["{:.3f}".format(x) for x in corrects])))
+    print("{:10s}: {}\t".format("PRECISION", " ".join(["{:.3f}".format(x) for x in precision])))
+    print("{:10s}: {}\t".format("RECALL", " ".join(["{:.3f}".format(x) for x in recall])))
+    print("{:10s}: {}\n".format("F1", " ".join(["{:.3f}".format(x) for x in f1])))
+    return loss_, mAP, mean_acc, mean_precision, mean_recall, mean_f1, corrects, precision, recall, f1
 
 
 def average_precision(label, pred):
