@@ -664,12 +664,12 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
             # Ulb data
             if iteration+1 >= args.warmup_iter:
                 #ulb_img = torch.cat([img, ulb_img], dim=0)
-                ulb_pred1, ulb_cam1, ulb_pred_rv1, ulb_cam_rv1, ulb_feat1 = model(ulb_img)  ###
+                ulb_pred2, ulb_cam2, ulb_pred_rv2, ulb_cam_rv2, ulb_feat2 = model(ulb_img2) ###
                 
                 ###
                 ema.apply_shadow()
                 with torch.no_grad():
-                    ulb_pred2, ulb_cam2, ulb_pred_rv2, ulb_cam_rv2, ulb_feat2 = model(ulb_img2)
+                    ulb_pred1, ulb_cam1, ulb_pred_rv1, ulb_cam_rv1, ulb_feat1 = model(ulb_img)  ###
                 ema.restore()
                 ###
 
@@ -703,7 +703,7 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
             
             ### Semi-supervsied Learning ###
             if iteration+1 >= args.warmup_iter: ###
-                loss_ssl = consistency_loss(ulb_pred1, ulb_pred2)
+                loss_ssl = consistency_loss(ulb_pred2, ulb_pred1)
                 loss += loss_ssl * args.ssl_lambda ###
             else:
                 loss_ssl = torch.zeros(1)
