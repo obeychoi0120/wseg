@@ -10,7 +10,7 @@ import torchvision.transforms.functional as vision_tf
 
 from util.imutils import RandomResizeLong,\
     random_crop_with_saliency, HWC_to_CHW, Normalize
-
+from data.augmentation.randaugment import RandAugment
 
 def load_img_id_list(img_id_file):
     return open(img_id_file).read().splitlines()
@@ -79,6 +79,9 @@ class ClassificationDatasetWithSaliency(ImageDataset):
 
         self.label_list = load_img_label_list_from_npy(self.img_id_list)
 
+        if self.aug_type == 'strong': ###
+            self.strong_transform = RandAugment(3, 5)
+
     def __getitem__(self, idx):
         img_id = self.img_id_list[idx]
 
@@ -97,19 +100,22 @@ class ClassificationDatasetWithSaliency(ImageDataset):
             return img_id, img1, saliency1, img2, saliency2, label
         # with strong augmetation (FixMatch)
         elif self.aug_type == 'strong':
-            pass ###
+            ### TODO: mask transform, return aug information
+            img2, saliency2 = self.transform_with_mask(img, saliency)
+            img2 = self.strong_transform(img2)
+            return img_id, img1, saliency1, img2, saliency2, label
         else:
             return
         ###
 
-    def transform_with_mask(self, img, mask):
+    def transform_with_mask(self, img, mask, hflip=None, ):
         # randomly resize
         target_size = random.randint(self.resize_size[0], self.resize_size[1])
         img = self.resize(img, target_size)
         mask = self.resize(mask, target_size)
 
         # randomly flip
-        if random.random() > 0.5:
+        if (hflip is None and random.random() > 0.5) or hflip: ###
             img = vision_tf.hflip(img)
             mask = vision_tf.hflip(mask)
 
@@ -134,4 +140,4 @@ class ClassificationDatasetWithSaliency(ImageDataset):
         mask = torch.from_numpy(mask)
         mask = torch.mean(mask, dim=0, keepdim=True)
 
-        return img, mask
+        return img, mask #, (hflip)

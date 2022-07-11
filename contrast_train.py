@@ -38,6 +38,7 @@ def get_arguments():
     parser.add_argument("--mu", default=1.0, type=float) # ratio of ulb / lb data
     parser.add_argument("--ema_m", default=0.999, type=float) # ratio of ulb / lb data
     parser.add_argument("--ssl_lambda", default=1.0, type=float) # ratio of ssl loss
+    parser.add_argument("--ulb_aug_type", default=None, type=str) # None / weak / strong
     #parser.add_argument("--p_cutoff", default=0.95, type=float)
     #parser.add_argument('--T', type=float, default=0.5)
     #parser.add_argument('--hard_label', type=bool, default=True)
