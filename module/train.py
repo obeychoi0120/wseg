@@ -662,16 +662,16 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
             pred2, cam2, pred_rv2, cam_rv2, feat2 = model(img2)
             
             # Ulb data
-            if iteration+1 >= args.warmup_iter:
-                #ulb_img = torch.cat([img, ulb_img], dim=0)
-                ulb_pred2, ulb_cam2, ulb_pred_rv2, ulb_cam_rv2, ulb_feat2 = model(ulb_img2) ###
-                
-                ###
-                ema.apply_shadow()
-                with torch.no_grad():
-                    ulb_pred1, ulb_cam1, ulb_pred_rv1, ulb_cam_rv1, ulb_feat1 = model(ulb_img)  ###
-                ema.restore()
-                ###
+            #if iteration+1 >= args.warmup_iter:
+            #ulb_img = torch.cat([img, ulb_img], dim=0)
+            ulb_pred2, ulb_cam2, ulb_pred_rv2, ulb_cam_rv2, ulb_feat2 = model(ulb_img2) ###
+            
+            ###
+            ema.apply_shadow()
+            with torch.no_grad():
+                ulb_pred1, ulb_cam1, ulb_pred_rv1, ulb_cam_rv1, ulb_feat1 = model(ulb_img)  ###
+            ema.restore()
+            ###
 
             # Classification loss 1
             loss_cls = F.multilabel_soft_margin_loss(pred1[:, :-1], label)
@@ -702,11 +702,15 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
             loss = loss_cls + loss_sal + loss_nce + loss_er + loss_ecr
             
             ### Semi-supervsied Learning ###
-            if iteration+1 >= args.warmup_iter: ###
-                loss_ssl = consistency_loss(ulb_pred2, ulb_pred1)
-                loss += loss_ssl * args.ssl_lambda ###
-            else:
-                loss_ssl = torch.zeros(1)
+            # if iteration+1 >= args.warmup_iter:
+            #     loss_ssl = consistency_loss(ulb_pred2, ulb_pred1)
+            #     loss += loss_ssl * args.ssl_lambda
+            # else:
+            #     loss_ssl = torch.zeros(1)
+            loss_ssl = consistency_loss(ulb_pred2, ulb_pred1)
+
+            ssl_warmup = float(np.clip(iteration / (args.warmup * args.max_iters), 0., 1.))
+            loss += loss_ssl * args.ssl_lambda * ssl_warmup
 
             avg_meter.add({'loss': loss.item(),
                            'loss_cls': loss_cls.item(),
@@ -723,13 +727,14 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
             ema.update() ########
 
             tb_dict = {}
-            ### tblog ###
-            for k in avg_meter.get_keys():
-                tb_dict['train/' + k] = avg_meter.pop(k)
-            tb_dict['train/lr'] = optimizer.param_groups[0]['lr']
 
             if (optimizer.global_step-1) % 50 == 0:
                 timer.update_progress(optimizer.global_step / max_step)
+
+                ### tblog ###
+                for k in avg_meter.get_keys():
+                    tb_dict['train/' + k] = avg_meter.pop(k)
+                tb_dict['train/lr'] = optimizer.param_groups[0]['lr']
 
                 print('Iter:%5d/%5d' % (iteration, args.max_iters),
                       'Loss_Cls:%.4f' % (tb_dict['train/loss_cls']),
