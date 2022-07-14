@@ -55,9 +55,10 @@ def get_dataloader(args):
         args.val_list,
         img_root=args.data_root,
         transform=transforms.Compose([
+                        transforms.Resize(args.crop_size),
                         np.asarray,
                         Normalize(),
-                        imutils.CenterCrop(500),
+                        imutils.CenterCrop(args.crop_size),
                         imutils.HWC_to_CHW,
                         torch.from_numpy
         ]))

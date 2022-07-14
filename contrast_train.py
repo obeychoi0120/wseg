@@ -37,7 +37,7 @@ def get_arguments():
     #parser.add_argument('--warmup_iter', type=int, default=2000)
     parser.add_argument('--warmup', type=float, default=0.4)
     parser.add_argument("--mu", default=1.0, type=float) # ratio of ulb / lb data
-    parser.add_argument("--ema_m", default=0.995, type=float) # ratio of ulb / lb data
+    parser.add_argument("--ema_m", default=0.999, type=float) # ratio of ulb / lb data
     parser.add_argument("--ssl_lambda", default=1.0, type=float) # ratio of ssl loss
     parser.add_argument("--ulb_aug_type", default=None, type=str) # None / weak / strong
     #parser.add_argument("--p_cutoff", default=0.95, type=float)
@@ -107,9 +107,11 @@ if __name__ == '__main__':
 
     # evaluate
     if args.eval:
+        model.load_state_dict(torch.load(os.path.join(args.log_folder, 'checkpoint_contrast.pth')))
+        model = torch.nn.DataParallel(model).cuda()
         validate(model, val_loader, 0, args)
         exit()
-
+    
     # train
     model = torch.nn.DataParallel(model).cuda()
     model.train()
