@@ -63,29 +63,32 @@ class RandomCrop:
         return container
 
 
-def random_crop_with_saliency(imgarr, mask, crop_size):
+def random_crop_with_saliency(imgarr, mask, crop_size, get_transform=False, transforms=None):
 
     h, w, c = imgarr.shape
 
-    ch = min(crop_size, h)
-    cw = min(crop_size, w)
+    if transforms is None:
+        ch = min(crop_size, h)
+        cw = min(crop_size, w)
 
-    w_space = w - crop_size
-    h_space = h - crop_size
+        w_space = w - crop_size
+        h_space = h - crop_size
 
-    if w_space > 0:
-        cont_left = 0
-        img_left = random.randrange(w_space+1)
+        if w_space > 0:
+            cont_left = 0
+            img_left = random.randrange(w_space+1)
+        else:
+            cont_left = random.randrange(-w_space+1)
+            img_left = 0
+
+        if h_space > 0:
+            cont_top = 0
+            img_top = random.randrange(h_space+1)
+        else:
+            cont_top = random.randrange(-h_space+1)
+            img_top = 0
     else:
-        cont_left = random.randrange(-w_space+1)
-        img_left = 0
-
-    if h_space > 0:
-        cont_top = 0
-        img_top = random.randrange(h_space+1)
-    else:
-        cont_top = random.randrange(-h_space+1)
-        img_top = 0
+        ch, cw, cont_left, img_left, cont_top, img_top = transforms
 
     container = np.zeros((crop_size, crop_size, imgarr.shape[-1]), np.float32)
     container_mask = np.zeros((crop_size, crop_size, imgarr.shape[-1]), np.float32)
@@ -94,7 +97,27 @@ def random_crop_with_saliency(imgarr, mask, crop_size):
     container_mask[cont_top:cont_top+ch, cont_left:cont_left+cw] = \
         mask[img_top:img_top+ch, img_left:img_left+cw]
 
-    return container, container_mask
+    if get_transform: ###
+        return container, container_mask, [ch, cw, cont_left, img_left, cont_top, img_top]
+    else:
+        return container, container_mask
+
+# # Use batch
+# def reverse_random_crop_with_saliency(img, mask, org_h, org_w, org_top, org_left):
+    
+#     B, C, H, W = img.shape
+#     print(B, org_h, org_w, img.shape[-1])
+#     container = np.zeros((B, org_h, org_w, img.shape[-1]), np.float32)
+#     container_mask = np.zeros((B, org_h, org_w, img.shape[-1]), np.float32)
+
+#     # Non-broadcasting
+#     for b in range(B):
+#         container[b, org_top:org_top+H, org_left:org_left+W] = \
+#             img[b, :, :]
+#         container_mask[b, org_top:org_top+H, org_left:org_left+W] = \
+#             mask[b, :, :]
+
+#     return container, container_mask
 
 
 class RandomHorizontalFlip():
