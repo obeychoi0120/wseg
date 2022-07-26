@@ -301,7 +301,7 @@ def max_onehot(x):
 def consistency_loss(logits_w1, logits_w2):
     logits_w2 = logits_w2.detach()
     assert logits_w1.size() == logits_w2.size()
-    return F.mse_loss(torch.softmax(logits_w1,dim=-1), torch.softmax(logits_w2,dim=-1), reduction='mean')
+    return F.mse_loss(torch.softmax(logits_w1,dim=1), torch.softmax(logits_w2,dim=1), reduction='mean')
 
 
 def consistency_2d_loss(logits_s, logits_w, name='ce', T=1.0, p_cutoff=0.0, use_hard_labels=True):
@@ -641,12 +641,12 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
         for _ in range(args.iter_size):
             try:
                 img_id, img, saliency, label = next(lb_loader_iter)
-                ulb_img_id, ulb_img, _, ulb_img2, _, _ = next(ulb_loader_iter)   ###
+                ulb_img_id, ulb_img, _, ulb_img2, _, _, _ = next(ulb_loader_iter)   ###
             except:
                 lb_loader_iter = iter(train_dataloader)
                 img_id, img, saliency, label = next(lb_loader_iter)
                 ulb_loader_iter = iter(train_ulb_dataloader)        ###
-                ulb_img_id, ulb_img, _, ulb_img2, _, _ = next(ulb_loader_iter)   ###
+                ulb_img_id, ulb_img, _, ulb_img2, _, _, _ = next(ulb_loader_iter)   ###
                 
             img = img.cuda(non_blocking=True)
             saliency = saliency.cuda(non_blocking=True)
@@ -707,7 +707,13 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
             #     loss += loss_ssl * args.ssl_lambda
             # else:
             #     loss_ssl = torch.zeros(1)
+            # 
+            # Logit MSE(L2) loss
             loss_ssl = consistency_loss(ulb_pred2, ulb_pred1)
+            # CAM MSE(L2) loss
+            #loss_ssl = consistency_loss(ulb_cam2, ulb_cam1)
+            # CAM pseudo-labeling
+            #loss_ssl= 
 
             ssl_warmup = float(np.clip(iteration / (args.warmup * args.max_iters), 0., 1.))
             loss += loss_ssl * args.ssl_lambda * ssl_warmup
