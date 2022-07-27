@@ -617,7 +617,7 @@ def train_contrast(train_dataloader, val_dataloader, model, optimizer, max_step,
 ### contrast + semi-supervised learning ###
 # Mean Teacher
 def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, model, optimizer, max_step, args):
-    avg_meter = pyutils.AverageMeter('loss', 'loss_cls', 'loss_sal', 'loss_nce', 'loss_er', 'loss_ecr', 'loss_ssl') ###
+    avg_meter = pyutils.AverageMeter('loss', 'loss_cls', 'loss_sal', 'loss_nce', 'loss_er', 'loss_ecr', 'loss_ssl', 'masked_ratio') ###
     tb_writer = SummaryWriter(args.log_folder) ###
     timer = pyutils.Timer("Session started: ")
     lb_loader_iter = iter(train_dataloader)
@@ -703,6 +703,7 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
             #     loss_ssl = torch.zeros(1)
             # 
             loss_ssl = 0
+            mask = 1.
             # Logit MSE(L2) loss
             #loss_ssl += consistency_loss(ulb_pred2, ulb_pred1, 'L2')
             # pixel-wise CAM MSE(L2) loss
@@ -720,7 +721,8 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
                            'loss_nce': loss_nce.item(),
                            'loss_er': loss_er.item(),
                            'loss_ecr': loss_ecr.item(),
-                           'loss_ssl': loss_ssl.item()})
+                           'loss_ssl': loss_ssl.item(),
+                           'masked_ratio': mask.item()})
                             ###
 
             optimizer.zero_grad()
@@ -745,6 +747,7 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
                       'Loss_ER: %.4f' % (tb_dict['train/loss_er']),
                       'Loss_ECR:%.4f' % (tb_dict['train/loss_ecr']),
                       'Loss_SSL:%.4f' % (tb_dict['train/loss_ssl']),    ###
+                      'Masked(1) Ratio:%.4f' % (tb_dict['train/masked_ratio']), ###
                       'imps:%.1f' % ((iteration+1) * args.batch_size / timer.get_stage_elapsed()),
                       'Fin:%s' % (timer.str_est_finish()),
                       'lr: %.4f' % (tb_dict['train/lr']), flush=True)
