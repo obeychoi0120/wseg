@@ -298,36 +298,30 @@ def max_onehot(x):
 ##################################################################################################
 
 
-def consistency_loss(logits_w1, logits_w2):
-    logits_w2 = logits_w2.detach()
-    assert logits_w1.size() == logits_w2.size()
-    return F.mse_loss(torch.softmax(logits_w1,dim=1), torch.softmax(logits_w2,dim=1), reduction='mean')
-
-
-def consistency_2d_loss(logits_s, logits_w, name='ce', T=1.0, p_cutoff=0.0, use_hard_labels=True):
-    logits_w = logits_w.detach()
+def consistency_loss(logits_1, logits_2, name='L2', T=1.0, p_cutoff=0.0, use_hard_labels=True):
+    logits_2 = logits_2.detach()
     if name == 'L2':
-        assert logits_w.size() == logits_s.size()
-        return F.mse_loss(logits_s, logits_w, reduction='mean')
-        
+        assert logits_2.size() == logits_1.size()
+        return F.mse_loss(logits_1, logits_2, reduction='mean')
+
     elif name == 'ce':
-        pseudo_label = torch.softmax(logits_w, dim=1)
+        pseudo_label = torch.softmax(logits_2, dim=1)
         max_probs, max_idx = torch.max(pseudo_label, dim=1)
         mask = max_probs.ge(p_cutoff).float()
-        mask = torch.where(max_idx < 20, mask, torch.zeros_like(mask)) # ignore background confidence
+        #mask = torch.where(max_idx < 20, mask, torch.zeros_like(mask)) # ignore background confidence
         select = max_probs.ge(p_cutoff).long()
         # strong_prob, strong_idx = torch.max(torch.softmax(logits_s, dim=-1), dim=-1)
         # strong_select = strong_prob.ge(p_cutoff).long()
         # select = select * strong_select * (strong_idx == max_idx)
         if use_hard_labels:
-            masked_loss = ce_2d_loss(logits_s, max_idx, use_hard_labels, reduction='none') * mask
+            masked_loss = ce_loss(logits_1, max_idx, use_hard_labels, reduction='none') * mask
         else:
-            pseudo_label = torch.softmax(logits_w / T, dim=1)
-            masked_loss = ce_2d_loss(logits_s, pseudo_label, use_hard_labels) * mask
+            pseudo_label = torch.softmax(logits_2 / T, dim=1)
+            masked_loss = ce_loss(logits_1, pseudo_label, use_hard_labels) * mask
         return masked_loss.mean(), mask.mean(), select, max_idx.long()
 
 
-def ce_2d_loss(preds, targets, use_hard_labels=True, reduction='none'):
+def ce_loss(preds, targets, use_hard_labels=True, reduction='none'):
     if use_hard_labels:
         log_pred = F.log_softmax(preds, dim=1)
         return F.nll_loss(log_pred, targets, reduction=reduction)
@@ -708,14 +702,16 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
             # else:
             #     loss_ssl = torch.zeros(1)
             # 
+            loss_ssl = 0
             # Logit MSE(L2) loss
-            loss_ssl = consistency_loss(ulb_pred2, ulb_pred1)
-            # CAM MSE(L2) loss
-            #loss_ssl = consistency_loss(ulb_cam2, ulb_cam1)
-            # CAM pseudo-labeling
-            #loss_ssl= 
+            #loss_ssl += consistency_loss(ulb_pred2, ulb_pred1, 'L2')
+            # pixel-wise CAM MSE(L2) loss
+            #loss_ssl += consistency_loss(torch.softmax(ulb_pred2,dim=1), torch.softmax(ulb_pred1,dim=1), 'L2')
+            # pixel-wise CAM pseudo-labeling(FixMatch)
+            unsup_loss, mask, _, pseudo_label = consistency_loss(ulb_cam2, ulb_cam1, 'ce', args.T, args.p_cutoff, args.hard_label)
+            loss_ssl += unsup_loss
 
-            ssl_warmup = float(np.clip(iteration / (args.warmup * args.max_iters), 0., 1.))
+            ssl_warmup = float(np.clip(iteration / (args.warmup * args.max_iters + 1e-8), 0., 1.))
             loss += loss_ssl * args.ssl_lambda * ssl_warmup
 
             avg_meter.add({'loss': loss.item(),
@@ -976,7 +972,7 @@ def train_contrast_ssl_lowres(train_dataloader, train_ulb_dataloader, val_datalo
 
             ### Semi-supervsied Learning ###
             if iteration+1 >= args.warmup_iter: ###
-                loss_ssl, masked_pixel, selected_pixel, pseudo_lb = consistency_2d_loss(ulb_cam1, ulb_cam2, 'ce', 
+                loss_ssl, masked_pixel, selected_pixel, pseudo_lb = consistency_loss(ulb_cam1, ulb_cam2, 'ce', 
                                                                             T=args.T, p_cutoff=args.p_cutoff, use_hard_labels=args.hard_label)
                 loss += loss_ssl * args.ssl_lambda ###
             else:
