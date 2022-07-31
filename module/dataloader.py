@@ -1,18 +1,25 @@
+from re import I
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
 from torchvision import transforms
 
-from data.dataset import ClassificationDataset, ClassificationDatasetWithSaliency
+from data.dataset import ClassificationDataset, ClassificationDatasetOnMemory, ClassificationDatasetWithSaliency, ClassificationDatasetWithSaliencyOnMemory
 from util import imutils
 from util.imutils import Normalize
 
 
 def get_dataloader(args):
+    if not args.data_on_mem:
+        CLS_DATASET = ClassificationDataset
+        CLS_SAL_DATASET = ClassificationDatasetWithSaliency
+    else:
+        CLS_DATASET = ClassificationDatasetOnMemory
+        CLS_SAL_DATASET = ClassificationDatasetWithSaliencyOnMemory
 
     if args.network_type == 'cls':
-        train_dataset = ClassificationDataset(
-            args.train_list,
+        train_dataset = CLS_DATASET(
+            img_id_list_file=args.train_list,
             img_root=args.data_root,
             transform=transforms.Compose([
                 imutils.RandomResizeLong(args.resize_size[0], args.resize_size[1]),
@@ -25,24 +32,24 @@ def get_dataloader(args):
                 torch.from_numpy
             ]))
     elif args.network_type == 'eps':
-        train_dataset = ClassificationDatasetWithSaliency(
-            args.train_list,
+        train_dataset = CLS_SAL_DATASET(
+            img_id_list_file=args.train_list,
             img_root=args.data_root,
             saliency_root=args.saliency_root,
             crop_size=args.crop_size,
             resize_size=args.resize_size
         )
     elif args.network_type == 'eps_seam' or args.network_type == 'eps_seam_with_PCM':
-        train_dataset = ClassificationDatasetWithSaliency(
-            args.train_list,
+        train_dataset = CLS_SAL_DATASET(
+            img_id_list_file=args.train_list,
             img_root=args.data_root,
             saliency_root=args.saliency_root,
             crop_size=args.crop_size,
             resize_size=args.resize_size
         )
     elif args.network_type == 'contrast':
-        train_dataset = ClassificationDatasetWithSaliency(
-            args.train_list,
+        train_dataset = CLS_SAL_DATASET(
+            img_id_list_file=args.train_list,
             img_root=args.data_root,
             saliency_root=args.saliency_root,
             crop_size=args.crop_size,
@@ -51,8 +58,8 @@ def get_dataloader(args):
     else:
         raise Exception("No appropriate train type")
 
-    val_dataset = ClassificationDataset(
-        args.val_list,
+    val_dataset = CLS_DATASET(
+        img_id_list_file=args.val_list,
         img_root=args.data_root,
         transform=transforms.Compose([
                         transforms.Resize(args.crop_size),
@@ -70,7 +77,7 @@ def get_dataloader(args):
 
     ### Unlabeled dataset ###
     if args.ssl:
-        # train_ulb_dataset = ClassificationDataset(
+        # train_ulb_dataset = CLS_DATASET(
         #     args.train_ulb_list,
         #     img_root=args.data_root,
         #     transform=transforms.Compose([
@@ -83,8 +90,8 @@ def get_dataloader(args):
         #         imutils.HWC_to_CHW,
         #         torch.from_numpy
         #     ]))
-        train_ulb_dataset = ClassificationDatasetWithSaliency(
-            args.train_ulb_list,
+        train_ulb_dataset = CLS_SAL_DATASET(
+            img_id_list_file=args.train_ulb_list,
             img_root=args.data_root,
             saliency_root=args.saliency_root,
             crop_size=args.crop_size,

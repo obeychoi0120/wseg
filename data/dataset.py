@@ -2,6 +2,7 @@ import random
 import os.path
 import PIL.Image
 import numpy as np
+from tqdm import tqdm
 
 import torch
 from torch.utils.data import Dataset
@@ -60,6 +61,27 @@ class ClassificationDataset(ImageDataset):
         label = torch.from_numpy(self.label_list[idx])
         return name, img, label
 
+class ClassificationDatasetOnMemory(ClassificationDataset):
+    """
+    Classification Dataset on Memory (base)
+    """
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.img_list = []
+        for img_id in tqdm(self.img_id_list, desc=f'Loading {len(self.img_id_list)} Images...'):
+            img = PIL.Image.open(os.path.join(self.img_root, img_id + '.jpg')).convert("RGB")
+            self.img_list.append(img)
+
+    def __getitem__(self, idx):    
+        img_id = self.img_id_list[idx]
+        img = self.img_list[idx]
+
+        if self.transform:
+            img = self.transform(img)
+
+        label = torch.from_numpy(self.label_list[idx])
+        return img_id, img, label
+
 
 class ClassificationDatasetWithSaliency(ImageDataset):
     """
@@ -90,7 +112,10 @@ class ClassificationDatasetWithSaliency(ImageDataset):
 
         img = PIL.Image.open(os.path.join(self.img_root, img_id + '.jpg')).convert("RGB")
         saliency = PIL.Image.open(get_saliency_path(img_id, self.saliency_root)).convert("RGB")
-        
+
+        return self._getitem(idx, img_id, img, saliency)
+
+    def _getitem(self, idx, img_id, img, saliency):
         label = torch.from_numpy(self.label_list[idx])
         img1, saliency1, weak_tr = self.transform_with_mask(img, saliency, get_transform=True)
         img1, saliency1 = self.totensor(img1, saliency1)
@@ -113,8 +138,7 @@ class ClassificationDatasetWithSaliency(ImageDataset):
             return img_id, img1, saliency1, img2, saliency2, \
                     {'img2_strong': strong_tr}, label
         else:
-            return
-        ###
+            return ###
 
     def transform_with_mask(self, img, mask, get_transform=False, strong=False, target_size=None, hflip=None, tr_random_crop=None):
         # randomly resize
@@ -166,3 +190,28 @@ class ClassificationDatasetWithSaliency(ImageDataset):
         mask = torch.mean(mask, dim=0, keepdim=True)
 
         return img, mask
+
+
+class ClassificationDatasetWithSaliencyOnMemory(ClassificationDatasetWithSaliency):
+    """
+    Classification Dataset with saliency (load on Memory)
+    """
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.img_list = []
+        self.saliency_list = []
+        for img_id in tqdm(self.img_id_list, desc=f'Loading {len(self.img_id_list)} Images...'):
+            img = PIL.Image.open(os.path.join(self.img_root, img_id + '.jpg')).convert("RGB")
+            saliency = PIL.Image.open(get_saliency_path(img_id, self.saliency_root)).convert("RGB")
+            self.img_list.append(img)
+            self.saliency_list.append(saliency)
+            
+        self.saliency_list
+
+    def __getitem__(self, idx):
+        img_id = self.img_id_list[idx]
+
+        img = self.img_list[idx]
+        saliency = self.saliency_list[idx]
+
+        return self._getitem(idx, img_id, img, saliency)
