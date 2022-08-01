@@ -98,14 +98,15 @@ class ClassificationDatasetWithSaliency(ImageDataset):
         self.resize = RandomResizeLong(resize_size[0], resize_size[1])
         self.color = transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.1)
         self.normalize = Normalize()
+        self.randomcrop = transforms.RandomCrop(self.crop_size) # alternative to random_crop_with_saliency
 
         self.label_list = load_img_label_list_from_npy(self.img_id_list)
 
         if self.aug_type == 'strong': ###
             blur_kernel_size = int(random.random() * 4.95)
             blur_kernel_size = blur_kernel_size + 1 if blur_kernel_size % 2 == 0 else blur_kernel_size
-            self.strong_transforms = [transforms.GaussianBlur(blur_kernel_size, sigma=(0.1, 2.0))]
-            self.randaug = RandAugment(3, 5)
+            self.strong_transforms = [transforms.GaussianBlur(blur_kernel_size, sigma=(0.1, 2.0))] # non-geometric transformations
+            self.randaug = RandAugment(3, 5) ###
 
     def __getitem__(self, idx):
         img_id = self.img_id_list[idx]
@@ -127,16 +128,14 @@ class ClassificationDatasetWithSaliency(ImageDataset):
         elif self.aug_type == 'weak':
             img2, saliency2, _  = self.transform_with_mask(img, saliency, True, False, *weak_tr)
             img2, saliency2 = self.totensor(img2, saliency2)
-            return img_id, img1, saliency1, img2, saliency2, \
-                   {}, label
+            return img_id, img1, saliency1, img2, saliency2, None, label
         # with strong augmetation (for MT, FixMatch)
         elif self.aug_type == 'strong':
             ### TODO: mask transform, return aug information
             img2, saliency2, _, strong_tr = self.transform_with_mask(img, saliency, True, True, *weak_tr)
             img2, saliency2 = self.totensor(img2, saliency2)
             
-            return img_id, img1, saliency1, img2, saliency2, \
-                    {'img2_strong': strong_tr}, label
+            return img_id, img1, saliency1, img2, saliency2, strong_tr, label
         else:
             return ###
 

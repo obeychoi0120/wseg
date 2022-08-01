@@ -10,3 +10,4 @@ pytz
 mxnet
 scikit-image
 scikit-learn
+tqdm
