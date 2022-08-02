@@ -4,11 +4,13 @@
 # This code is modified version of one of ildoonet, for randaugmentation of fixmatch.
 
 import random
+import math
 
 import PIL, PIL.ImageOps, PIL.ImageEnhance, PIL.ImageDraw
 import numpy as np
 import torch
 import torch.nn.functional as F
+
 from PIL import Image
 
 
@@ -140,7 +142,36 @@ def CutoutAbs(img, v):  # [0, 60] => percentage: [0, 0.2]
     PIL.ImageDraw.Draw(img).rectangle(xy, color)
     return img
 
+
+def tensorIdentity(img, v):
+    return {'angle': 0, 'translate':[0, 0], 'shear':[0., 0.], 'scale': 1.}
+
+
+def tensorRotate(img, v):
+    v *= -1
+    return {'angle': v, 'translate':[0, 0], 'shear':[0., 0.], 'scale': 1.}
+
+
+def tensorShearX(img, v): # radian -> degree(v * 180 / math.pi)
+    dx = int(-1 * math.tan(v) * img.size(-2) / 2) # additional translation(matching to PIL affine shear)
+    return {'angle': 0., 'translate':[dx, 0], 'shear':[math.degrees(v), 0.], 'scale': 1.}
+
+
+def tensorShearY(img, v): # radian -> degree
+    dy = int(-1 * math.tan(v) * img.size(-2) / 2) # additional translation(matching to PIL affine shear)
+    return {'angle': 0., 'translate':[0, dy], 'shear':[0., math.degrees(v)], 'scale': 1.}
+
+
+def tensorTranslateX(img, v):
+    v *= img.size(-1) * -1
+    return {'angle': 0., 'translate':[v, 0], 'shear':[0., 0.], 'scale': 1.}
+
+
+def tensorTranslateY(img, v):
+    v *= img.size(-2) * -1
+    return {'angle': 0., 'translate':[0, v], 'shear':[0., 0.], 'scale': 1.}
     
+
 def augment_list():  
     l = [
         (AutoContrast, 0, 1),
@@ -150,13 +181,32 @@ def augment_list():
         (Equalize, 0, 1),
         (Identity, 0, 1),
         (Posterize, 4, 8),
-        # (Rotate, -30, 30),
+        (Rotate, -30, 30),          # geometric
         (Sharpness, 0.05, 0.95),
-        # (ShearX, -0.3, 0.3),
-        # (ShearY, -0.3, 0.3),
+        (ShearX, -0.3, 0.3),        # geometric
+        (ShearY, -0.3, 0.3),        # geometric
         (Solarize, 0, 256),
-        # (TranslateX, -0.3, 0.3),
-        # (TranslateY, -0.3, 0.3),
+        (TranslateX, -0.3, 0.3),    # geometric
+        (TranslateY, -0.3, 0.3),    # geometric
+    ]
+    return l
+
+def tensor_augment_list(): # ignore non-geometric transformations 
+    l = [
+        tensorIdentity,
+        tensorIdentity,
+        tensorIdentity,
+        tensorIdentity,
+        tensorIdentity,
+        tensorIdentity,
+        tensorIdentity,
+        tensorRotate,       # geometric
+        tensorIdentity,
+        tensorShearX,       # geometric
+        tensorShearY,       # geometric
+        tensorIdentity,
+        tensorTranslateX,   # geometric
+        tensorTranslateY,   # geometric
     ]
     return l
 
@@ -169,13 +219,19 @@ class RandAugment:
 
         
     def __call__(self, img):
-        ops = random.choices(self.augment_list, k=self.n)
-        for op, min_val, max_val in ops:
+        #ops = random.choices(self.augment_list, k=self.n)
+        transform_idxs = random.choices(range(len(self.augment_list)), k=self.n)
+        trs = []
+        for idx in transform_idxs: #ops
+            op, min_val, max_val = self.augment_list[idx]
             val = min_val + float(max_val - min_val)*random.random()
             img = op(img, val) 
+            # save transforms
+            trs.append([idx, val])
+
         #cutout_val = random.random() * 0.5 
         #img = Cutout(img, cutout_val) #for fixmatch
-        return img, 0
+        return img, trs
 
     
 if __name__ == '__main__':

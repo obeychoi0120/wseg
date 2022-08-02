@@ -10,7 +10,7 @@ from torchvision import transforms
 import torchvision.transforms.functional as vision_tf
 
 from util.imutils import RandomResizeLong,\
-    random_crop_with_saliency, HWC_to_CHW, Normalize
+    random_crop_with_saliency, random_crop_with_saliency_pil, HWC_to_CHW, Normalize
 from data.augmentation.randaugment import RandAugment
 
 def load_img_id_list(img_id_file):
@@ -98,7 +98,6 @@ class ClassificationDatasetWithSaliency(ImageDataset):
         self.resize = RandomResizeLong(resize_size[0], resize_size[1])
         self.color = transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.1)
         self.normalize = Normalize()
-        self.randomcrop = transforms.RandomCrop(self.crop_size) # alternative to random_crop_with_saliency
 
         self.label_list = load_img_label_list_from_npy(self.img_id_list)
 
@@ -155,6 +154,9 @@ class ClassificationDatasetWithSaliency(ImageDataset):
         # add color jitter
         img = self.color(img)
 
+        # Random Crop
+        img, mask, tr_random_crop = random_crop_with_saliency_pil(img, mask, self.crop_size, get_transform=True, transforms=tr_random_crop)
+
         # Strong Augmentation
         if strong:
             for tr in self.strong_transforms:
@@ -168,7 +170,8 @@ class ClassificationDatasetWithSaliency(ImageDataset):
         img = self.normalize(img)
         mask = mask / 255.
 
-        img, mask, tr_random_crop = random_crop_with_saliency(img, mask, self.crop_size, get_transform=True, transforms=tr_random_crop)
+        # # Random Crop (unuse)
+        # img, mask, tr_random_crop = random_crop_with_saliency(img, mask, self.crop_size, get_transform=True, transforms=tr_random_crop)
 
         if get_transform: ###
             if strong:
