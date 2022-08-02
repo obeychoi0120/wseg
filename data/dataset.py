@@ -163,8 +163,8 @@ class ClassificationDatasetWithSaliency(ImageDataset):
                 img = tr(img)
             img, strong_tr = self.randaug(img) # saliency2
 
-        img = np.asarray(img)
-        mask = np.asarray(mask)
+        img = np.asarray(img, dtype=np.float32)
+        mask = np.asarray(mask, dtype=np.float32)
 
         # normalize
         img = self.normalize(img)
