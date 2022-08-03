@@ -440,8 +440,8 @@ def apply_strong_tr(img, ops, strong_transforms=None):
         for i, (idx, val) in enumerate(zip(idxs, vals)):
             idx, val = int(idx.item()), val.item()
             kwargs = strong_transforms[idx](img[i], val)
-            # reample: NEAREST or BILINEAR, replace resample into Interpolation(:InterpolationMode) after 0.12
-            img[i,:] = tvf.affine(img[i], resample=Image.BILINEAR, **kwargs) 
+            # reample: NEAREST or BILINEAR, replace into torchvision.transforms.functional.InterpolationMode after 0.10
+            img[i,:] = tvf.affine(img[i], interpolation=Image.BILINEAR, **kwargs) 
     return img
 
 
@@ -739,8 +739,8 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
             ######  3. Pixel-wise CAM pseudo-labeling(FixMatch, CE) loss  ######
             # loss_ssl, mask, _, pseudo_label = consistency_loss(ulb_cam2, ulb_cam1, 'ce', args.T, args.p_cutoff, args.hard_label) # w.o. geometry tr.
             loss_ssl, mask, _, pseudo_label = consistency_loss(ulb_cam2, ulb_cam1_s, 'ce', args.T, args.p_cutoff, args.hard_label) # w. geometry tr.
-            #print(ulb_cam1.dtype, ulb_cam1_s.dtype, ulb_cam2.dtype, loss.dtype, loss_ssl.dtype, (loss_ssl * args.ssl_lambda).dtype)
-            #loss += loss_ssl * args.ssl_lambda # * ssl_warmup
+            
+            loss += loss_ssl * args.ssl_lambda # * ssl_warmup
 
             avg_meter.add({'loss': loss.item(),
                            'loss_cls': loss_cls.item(),
@@ -792,6 +792,11 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
                 tb_dict['val_ema/loss'], tb_dict['val_ema/mAP'], tb_dict['val_ema/mean_acc'], tb_dict['val_ema/mean_precision'], \
                 tb_dict['val_ema/mean_recall'], tb_dict['val_ema/mean_f1'], ema_acc, ema_precision, ema_recall, ema_f1 = validate(model, val_dataloader, iteration, args) ###
                 ema.restore() ###
+
+                # Save each model
+                model_path = os.path.join(args.log_folder, f'checkpoint_contrast_{iteration}.pth')
+                torch.save(model.module.state_dict(), model_path)
+                print(f'Model {model_path} Saved.')
             
             ### tblog update ###
             for k, value in tb_dict.items():
