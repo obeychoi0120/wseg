@@ -302,7 +302,7 @@ def max_onehot(x):
 ##################################################################################################
 
 
-def consistency_loss(logits_s, logits_t, name='L2', T=1.0, p_cutoff=0.0, use_hard_labels=True):
+def consistency_loss(logits_s, logits_t, name='L2', T=1.0, p_cutoff=0.0, use_soft_label=False):
     logits_t = logits_t.detach()
     if name == 'L2':
         assert logits_s.size() == logits_t.size()
@@ -317,16 +317,16 @@ def consistency_loss(logits_s, logits_t, name='L2', T=1.0, p_cutoff=0.0, use_har
         # strong_prob, strong_idx = torch.max(torch.softmax(logits_s, dim=-1), dim=-1)
         # strong_select = strong_prob.ge(p_cutoff).long()
         # select = select * strong_select * (strong_idx == max_idx)
-        if use_hard_labels:
-            masked_loss = ce_loss(logits_s, max_idx, use_hard_labels, reduction='none') * mask
+        if not use_soft_label:
+            masked_loss = ce_loss(logits_s, max_idx, use_soft_label, reduction='none') * mask
         else:
             pseudo_label = torch.softmax(logits_t / T, dim=1)
-            masked_loss = ce_loss(logits_s, pseudo_label, use_hard_labels) * mask
+            masked_loss = ce_loss(logits_s, pseudo_label, use_soft_label) * mask
         return masked_loss.mean(), mask.mean(), select, max_idx.long()
 
 
-def ce_loss(preds, targets, use_hard_labels=True, reduction='none'):
-    if use_hard_labels:
+def ce_loss(preds, targets, use_soft_label=False, reduction='none'):
+    if not use_soft_label:
         log_pred = F.log_softmax(preds, dim=1)
         return F.nll_loss(log_pred, targets, reduction=reduction)
         # return F.cross_entropy(logits, targets, reduction=reduction) this is unstable
@@ -440,8 +440,8 @@ def apply_strong_tr(img, ops, strong_transforms=None):
         for i, (idx, val) in enumerate(zip(idxs, vals)):
             idx, val = int(idx.item()), val.item()
             kwargs = strong_transforms[idx](img[i], val)
-            # reample: NEAREST or BILINEAR, replace into torchvision.transforms.functional.InterpolationMode after 0.10
-            img[i,:] = tvf.affine(img[i], interpolation=Image.BILINEAR, **kwargs) 
+            # reample: NEAREST or BILINEAR, replace resample into interpolation(:InterpolationMode) after 0.10
+            img[i,:] = tvf.affine(img[i], resample=Image.BILINEAR, **kwargs) 
     return img
 
 
@@ -737,8 +737,8 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
             # mask = torch.Tensor([1.])
 
             ######  3. Pixel-wise CAM pseudo-labeling(FixMatch, CE) loss  ######
-            # loss_ssl, mask, _, pseudo_label = consistency_loss(ulb_cam2, ulb_cam1, 'ce', args.T, args.p_cutoff, args.hard_label) # w.o. geometry tr.
-            loss_ssl, mask, _, pseudo_label = consistency_loss(ulb_cam2, ulb_cam1_s, 'ce', args.T, args.p_cutoff, args.hard_label) # w. geometry tr.
+            # loss_ssl, mask, _, pseudo_label = consistency_loss(ulb_cam2, ulb_cam1, 'ce', args.T, args.p_cutoff, args.soft_label) # w.o. geometry tr.
+            loss_ssl, mask, _, pseudo_label = consistency_loss(ulb_cam2, ulb_cam1_s, 'ce', args.T, args.p_cutoff, args.soft_label) # w. geometry tr.
             
             loss += loss_ssl * args.ssl_lambda # * ssl_warmup
 
@@ -1011,7 +1011,7 @@ def train_contrast_ssl_lowres(train_dataloader, train_ulb_dataloader, val_datalo
             ### Semi-supervsied Learning ###
             if iteration+1 >= args.warmup_iter: ###
                 loss_ssl, masked_pixel, selected_pixel, pseudo_lb = consistency_loss(ulb_cam1, ulb_cam2, 'ce', 
-                                                                            T=args.T, p_cutoff=args.p_cutoff, use_hard_labels=args.hard_label)
+                                                                            T=args.T, p_cutoff=args.p_cutoff, use_hard_labels=args.soft_label)
                 loss += loss_ssl * args.ssl_lambda ###
             else:
                 loss_ssl = torch.zeros(1)
