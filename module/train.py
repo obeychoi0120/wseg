@@ -302,11 +302,15 @@ def max_onehot(x):
 ##################################################################################################
 
 
-def consistency_loss(logits_s, logits_t, name='L2', T=1.0, p_cutoff=0.0, use_soft_label=False):
+def consistency_loss(logits_s, logits_t, name='L2', T=1.0, p_cutoff=0.0, use_soft_label=False, mask=None):
     logits_t = logits_t.detach()
     if name == 'L2':
         assert logits_s.size() == logits_t.size()
-        return F.mse_loss(logits_s, logits_t, reduction='mean')
+        if mask is not None:
+            masked_loss = F.mse_loss(logits_s, logits_t, reduction='none') * mask
+            return masked_loss.mean()
+        else:
+            return F.mse_loss(logits_s, logits_t, reduction='mean')
 
     elif name == 'ce':
         pseudo_label = torch.softmax(logits_t, dim=1)
@@ -433,13 +437,19 @@ class EMA:
         self.backup = {}
 
 
-def apply_strong_tr(img, ops, strong_transforms=None):
+def apply_strong_tr(img, ops, strong_transforms=None, fill_background=False):
+    b, c, h, w = img.size()
+
     ops = torch.stack([torch.stack(op,dim=0) for op in ops], dim=0) # (N_transforms, 2(i,v), Batch_size)
     img = img.detach().clone()
     for idxs, vals in ops:
         for i, (idx, val) in enumerate(zip(idxs, vals)):
             idx, val = int(idx.item()), val.item()
             kwargs = strong_transforms[idx](img[i], val)
+            if fill_background:
+                # replace fillcolor into fill after 0.10
+                kwargs['fillcolor'] = torch.zeros_like(img[i,:,0,0])
+                kwargs['fillcolor'][-1] = img[i].max()
             # reample: NEAREST or BILINEAR, replace resample into interpolation(:InterpolationMode) after 0.10
             img[i,:] = tvf.affine(img[i], resample=Image.BILINEAR, **kwargs) 
     return img
@@ -686,7 +696,10 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
                 ### Apply strong transforms to pseudo-label(pixelwise matching with ulb_cam2) ###
                 ulb_cam1_s = apply_strong_tr(ulb_cam1, ops2, strong_transforms=strong_transforms)
                 # ulb_cam_rv1_s = apply_strong_tr(ulb_cam_rv1, ops2, strong_transforms=strong_transforms)
-                # ### Make strong augmented (transformed) prediction ###
+                # ### Make maks for pixel-wise MT ###
+                mask = torch.ones_like(ulb_cam1)
+                mask_s = apply_strong_tr(mask, ops2, strong_transforms=strong_transforms)
+                # ### Make strong augmented (transformed) prediction for MT ###
                 # ulb_pred1_s = F.avg_pool2d(ulb_cam1_s, kernel_size=(ulb_cam1_s.size(-2), ulb_cam1_s.size(-1)), padding=0)
                 # ulb_pred1_s = ulb_pred1_s.view(ulb_pred1_s.size(0), -1)
             ema.restore()
@@ -733,8 +746,8 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
 
             ######             2. Pixel-wise CAM MSE(L2) loss             ######
             # #loss_ssl = consistency_loss(torch.softmax(ulb_cam2,dim=1), torch.softmax(ulb_cam1,dim=1), 'L2') # w.o. geometry tr.
-            # loss_ssl = consistency_loss(torch.softmax(ulb_cam2,dim=1), torch.softmax(ulb_cam1_s,dim=1), 'L2') # w. geometry tr.
-            # mask = torch.Tensor([1.])
+            loss_ssl = consistency_loss(torch.softmax(ulb_cam2,dim=1), torch.softmax(ulb_cam1_s,dim=1), 'L2', mask=mask_s) # w. geometry tr.
+            mask = mask_s.mean()
 
             ######  3. Pixel-wise CAM pseudo-labeling(FixMatch, CE) loss  ######
             # loss_ssl, mask, _, pseudo_label = consistency_loss(ulb_cam2, ulb_cam1, 'ce', args.T, args.p_cutoff, args.soft_label) # w.o. geometry tr.
