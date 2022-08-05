@@ -88,7 +88,7 @@ class ClassificationDatasetWithSaliency(ImageDataset):
     Classification Dataset with saliency
     """
     def __init__(self, img_id_list_file, img_root, saliency_root=None,
-                 crop_size=224, resize_size=(256, 512), aug_type=None):
+                 crop_size=224, resize_size=(256, 512), aug_type=None, n_strong_aug=3):
         super().__init__(img_id_list_file, img_root, transform=None)
         self.saliency_root = saliency_root
         self.crop_size = crop_size
@@ -105,7 +105,7 @@ class ClassificationDatasetWithSaliency(ImageDataset):
             blur_kernel_size = int(random.random() * 4.95)
             blur_kernel_size = blur_kernel_size + 1 if blur_kernel_size % 2 == 0 else blur_kernel_size
             self.strong_transforms = [transforms.GaussianBlur(blur_kernel_size, sigma=(0.1, 2.0))] # non-geometric transformations
-            self.randaug = RandAugment(3, 5) ###
+            self.randaug = RandAugment(n_strong_aug, 5) ###
 
     def __getitem__(self, idx):
         img_id = self.img_id_list[idx]

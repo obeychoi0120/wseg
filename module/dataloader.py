@@ -96,7 +96,8 @@ def get_dataloader(args):
             saliency_root=args.saliency_root,
             crop_size=args.crop_size,
             resize_size=args.resize_size,
-            aug_type=args.ulb_aug_type
+            aug_type=args.ulb_aug_type,
+            n_strong_aug=args.n_strong_aug
         )
         train_ulb_loader = DataLoader(train_ulb_dataset, batch_size=int(args.batch_size*args.mu), shuffle=True,
                                       num_workers=args.num_workers, pin_memory=True, drop_last=True)
