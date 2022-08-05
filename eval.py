@@ -143,12 +143,13 @@ if __name__ == '__main__':
         l = []
         p = []
         r = []
-        for i in range(50):
+        ths = 50
+        for i in range(ths):
             t = i / 100.0
             loglist = do_python_eval(args.predict_dir, args.gt_dir, name_list, 21, args.type, t)
             l.append(loglist['mIoU'])
             p.append(loglist['Precision'])
             r.append(loglist['Recall'])
-            print('%d/60 background score: %.3f\tmIoU: %.3f%%\tPrecision: %.3f%%\tRecall: %.3f%%' % 
-                (i, t, loglist['mIoU'], loglist['Precision'], loglist['Recall']))
+            print('%d/%d background score: %.3f\tmIoU: %.3f%%\tPrecision: %.3f%%\tRecall: %.3f%%' % 
+                (ths, i, t, loglist['mIoU'], loglist['Precision'], loglist['Recall']))
         writelog(args.logfile, {'mIoU': l, 'Precision': p, 'Recall': r}, args.comment)

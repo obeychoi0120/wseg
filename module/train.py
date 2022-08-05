@@ -341,7 +341,7 @@ def ce_loss(preds, targets, use_soft_label=False, reduction='none'):
         return nll_loss
 
 
-class NCESoftmaxLoss(nn.Module): ###
+class NCESoftmaxLoss(nn.Module): ### useless
     """Softmax cross-entropy loss (a.k.a., info-NCE loss in CPC paper)"""
     def __init__(self, T=0.01):
         super(NCESoftmaxLoss, self).__init__()
@@ -358,11 +358,7 @@ class NCESoftmaxLoss(nn.Module): ###
         return loss
 
 
-def cam_normalize(x):
-    return x / x.norm(2, dim=1, keepdim=True)
-
-
-def transform_cam(cam, i, j, h, w, hor_flip, args):
+def transform_cam(cam, i, j, h, w, hor_flip, args): ### useless
     gpu_batch_len = cam.size(0)
     cam_size = cam.size(-1)
     aug_cam = torch.zeros_like(cam).cuda()
@@ -382,7 +378,24 @@ def transform_cam(cam, i, j, h, w, hor_flip, args):
     return aug_cam
 
 
-def consistency_cam_loss(cam_from_aug, augmented_cam, criterion):
+# functional form of NCESoftmaxLoss
+def nce_softmax_loss(x, T=0.01):
+    bsz = x.shape[0]
+    x = x.squeeze()
+    x = torch.div(x, T)
+    label = torch.zeros([bsz]).cuda().long()
+    loss = F.cross_entropy(x, label)
+    return loss
+
+
+def cam_normalize(x):
+    return x / x.norm(2, dim=1, keepdim=True)
+
+
+def consistency_cam_loss(cam_from_aug, augmented_cam, mask=None):
+    if mask is not None:
+        cam_from_aug = cam_from_aug * mask
+        augmented_cam = augmented_cam * mask
     cam_from_aug = cam_normalize(cam_from_aug.flatten(1))
     augmented_cam = cam_normalize(augmented_cam.flatten(1))
 
@@ -392,7 +405,7 @@ def consistency_cam_loss(cam_from_aug, augmented_cam, criterion):
     neg = neg[(1-torch.eye(bsize)).bool()].view(-1, bsize-1)
     out = torch.cat((pos.view(bsize, 1), neg), dim=1)
     
-    return criterion(out)
+    return nce_softmax_loss(out)
 
 
 class EMA:
@@ -653,6 +666,8 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
     if 3 in args.ssl_type:
         log_keys.append('loss_ssl')
         log_keys.append('mask_ratio')
+    if 4 in args.ssl_type:
+        log_keys.append('loss_con')
     avg_meter = pyutils.AverageMeter(*log_keys) ###
     
     tb_writer = SummaryWriter(args.log_folder) ###
@@ -710,7 +725,7 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
                     ulb_pred1_s = F.avg_pool2d(ulb_cam1_s, kernel_size=(ulb_cam1_s.size(-2), ulb_cam1_s.size(-1)), padding=0)
                     ulb_pred1_s = ulb_pred1_s.view(ulb_pred1_s.size(0), -1)
                 # ### Make masks for pixel-wise MT ###
-                if 2 in args.ssl_type:
+                if 2 in args.ssl_type or 4 in args.ssl_type :
                     mask = torch.ones_like(ulb_cam1)
                     mask_s = apply_strong_tr(mask, ops2, strong_transforms=strong_transforms)
             ema.restore()
@@ -767,6 +782,11 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
             
                 loss += loss_ssl * args.ssl_lambda # * ssl_warmup
 
+            ######           4. T(f(x)) <=> f(T(x)) InfoNCE loss          ######
+            if 4 in args.ssl_type:
+                loss_con = consistency_cam_loss(torch.softmax(ulb_cam2,dim=1), torch.softmax(ulb_cam1_s,dim=1), mask_s)
+                loss += loss_con * args.ssl_lambda
+
             avg_meter.add({'loss': loss.item(),
                            'loss_cls': loss_cls.item(),
                            'loss_sal': loss_sal.item(),
@@ -780,6 +800,8 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
             if 3 in args.ssl_type:
                 avg_meter.add({'loss_ssl': loss_ssl.item(),
                                'mask_ratio': mask.item()})
+            if 4 in args.ssl_type:
+                avg_meter.add({'loss_con': loss_con.item()})
             ###
 
             optimizer.zero_grad()
@@ -810,6 +832,8 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
                 if 3 in args.ssl_type:
                     print('Loss_SSL:%.4f' % (tb_dict['train/loss_ssl']),
                           'Mask_Ratio:%.4f' % (tb_dict['train/mask_ratio']), end=' ') ###
+                if 4 in args.ssl_type:
+                    print('Loss_Consistency: %.4f' % (tb_dict['train/loss_con']), end=' ')
                 print('\n                ',
                       'imps:%.1f' % ((iteration+1) * args.batch_size / timer.get_stage_elapsed()),
                       'Fin:%s' % (timer.str_est_finish()),
@@ -834,9 +858,6 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
             ### tblog update ###
             for k, value in tb_dict.items():
                 tb_writer.add_scalar(k, value, iteration)
-            # for arr, k in zip([acc, precision, recall, f1, ema_acc, ema_precision, ema_recall, ema_f1]
-            #                 ['acc', 'precision', 'recall', 'f1', 'ema_acc', 'ema_precision', 'ema_recall', 'ema_f1']):
-            #     tb_writer.
 
             timer.reset_stage()
     torch.save(model.module.state_dict(), os.path.join(args.log_folder, 'checkpoint_contrast.pth'))
