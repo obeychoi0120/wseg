@@ -773,19 +773,21 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
                 #loss_pmt = consistency_loss(torch.softmax(ulb_cam2,dim=1), torch.softmax(ulb_cam1,dim=1), 'L2') # w.o. geometry tr.
                 loss_pmt = consistency_loss(torch.softmax(ulb_cam2,dim=1), torch.softmax(ulb_cam1_s,dim=1), 'L2', mask=mask_s) # w. geometry tr.
 
-                loss += loss_pmt * args.ssl_lambda # * ssl_warmup
+                loss += loss_pmt * args.ssl_lambda
 
             ######  3. Pixel-wise CAM pseudo-labeling(FixMatch, CE) loss  ######
             if 3 in args.ssl_type:
                 # loss_ssl, mask, _, pseudo_label = consistency_loss(ulb_cam2, ulb_cam1, 'ce', args.T, args.p_cutoff, args.soft_label) # w.o. geometry tr.
                 loss_ssl, mask, _, pseudo_label = consistency_loss(ulb_cam2, ulb_cam1_s, 'ce', args.T, args.p_cutoff, args.soft_label) # w. geometry tr.
             
-                loss += loss_ssl * args.ssl_lambda # * ssl_warmup
+                loss += loss_ssl * args.ssl_lambda
 
             ######           4. T(f(x)) <=> f(T(x)) InfoNCE loss          ######
             if 4 in args.ssl_type:
                 loss_con = consistency_cam_loss(torch.softmax(ulb_cam2,dim=1), torch.softmax(ulb_cam1_s,dim=1), mask_s)
-                loss += loss_con * args.ssl_lambda
+                
+                warmup = float(np.clip(iteration / (args.mt_warmup * args.max_iters + 1e-9), 0., 1.))
+                loss += loss_con * args.ssl_lambda * warmup
 
             avg_meter.add({'loss': loss.item(),
                            'loss_cls': loss_cls.item(),

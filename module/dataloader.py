@@ -77,19 +77,6 @@ def get_dataloader(args):
 
     ### Unlabeled dataset ###
     if args.ssl:
-        # train_ulb_dataset = CLS_DATASET(
-        #     args.train_ulb_list,
-        #     img_root=args.data_root,
-        #     transform=transforms.Compose([
-        #         imutils.RandomResizeLong(args.resize_size[0], args.resize_size[1]),
-        #         transforms.RandomHorizontalFlip(),
-        #         transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.1),
-        #         np.asarray,
-        #         Normalize(),
-        #         imutils.RandomCrop(args.crop_size),
-        #         imutils.HWC_to_CHW,
-        #         torch.from_numpy
-        #     ]))
         train_ulb_dataset = CLS_SAL_DATASET(
             img_id_list_file=args.train_ulb_list,
             img_root=args.data_root,

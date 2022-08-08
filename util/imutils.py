@@ -132,24 +132,6 @@ def random_crop_with_saliency_pil(img, mask, crop_size, get_transform=False, tra
         return img, mask
 
 
-# # Use batch
-# def reverse_random_crop_with_saliency(img, mask, org_h, org_w, org_top, org_left):
-    
-#     B, C, H, W = img.shape
-#     print(B, org_h, org_w, img.shape[-1])
-#     container = np.zeros((B, org_h, org_w, img.shape[-1]), np.float32)
-#     container_mask = np.zeros((B, org_h, org_w, img.shape[-1]), np.float32)
-
-#     # Non-broadcasting
-#     for b in range(B):
-#         container[b, org_top:org_top+H, org_left:org_left+W] = \
-#             img[b, :, :]
-#         container_mask[b, org_top:org_top+H, org_left:org_left+W] = \
-#             mask[b, :, :]
-
-#     return container, container_mask
-
-
 class RandomHorizontalFlip():
     def __init__(self):
         return
