@@ -151,5 +151,5 @@ if __name__ == '__main__':
             p.append(loglist['Precision'])
             r.append(loglist['Recall'])
             print('%d/%d background score: %.3f\tmIoU: %.3f%%\tPrecision: %.3f%%\tRecall: %.3f%%' % 
-                (ths, i, t, loglist['mIoU'], loglist['Precision'], loglist['Recall']))
+                (i, ths, t, loglist['mIoU'], loglist['Precision'], loglist['Recall']))
         writelog(args.logfile, {'mIoU': l, 'Precision': p, 'Recall': r}, args.comment)
