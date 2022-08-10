@@ -468,6 +468,50 @@ def apply_strong_tr(img, ops, strong_transforms=None, fill_background=False):
     return img
 
 
+def rand_bbox(size, l):
+    W = size[2]
+    H = size[3]
+    B = size[0]
+    cut_rat = np.sqrt(1. - l)
+    cut_w = np.int(W * cut_rat)
+    cut_h = np.int(H * cut_rat)
+
+    cx = np.random.randint(size=[B, ], low=int(W/8), high=W)
+    cy = np.random.randint(size=[B, ], low=int(H/8), high=H)
+
+    bbx1 = np.clip(cx - cut_w // 2, 0, W)
+    bby1 = np.clip(cy - cut_h // 2, 0, H)
+
+    bbx2 = np.clip(cx + cut_w // 2, 0, W)
+    bby2 = np.clip(cy + cut_h // 2, 0, H)
+
+    return bbx1, bby1, bbx2, bby2
+    
+
+def cutmix(img_ulb, mask_ulb):
+    mix_img_ulb = img_ulb.clone()
+    mix_target = mask_ulb.clone()
+    x_r = img_ulb.size(-1) / mask_ulb.size(-1)
+    y_r = img_ulb.size(-2) / mask_ulb.size(-2)
+    
+    u_rand_index = torch.randperm(img_ulb.size()[0])[:img_ulb.size()[0]].cuda()
+    u_bbx1, u_bby1, u_bbx2, u_bby2 = rand_bbox(img_ulb.size(), l=np.random.beta(4, 4))
+
+    u_bbx1_t, u_bby1_t, u_bbx2_t, u_bby2_t = (u_bbx1//x_r).astype(np.int32), (u_bby1//y_r).astype(np.int32), \
+                                             (u_bbx2//x_r).astype(np.int32), (u_bby2//y_r).astype(np.int32)
+
+    for i in range(0, mix_img_ulb.size(0)):
+        mix_img_ulb[i, :, u_bbx1[i]:u_bbx2[i], u_bby1[i]:u_bby2[i]] = \
+            img_ulb[u_rand_index[i], :, u_bbx1[i]:u_bbx2[i], u_bby1[i]:u_bby2[i]]
+
+        mix_target[i, :, u_bbx1_t[i]:u_bbx2_t[i], u_bby1_t[i]:u_bby2_t[i]] = \
+            mask_ulb[u_rand_index[i], :, u_bbx1_t[i]:u_bbx2_t[i], u_bby1_t[i]:u_bby2_t[i]]
+
+    del img_ulb, mask_ulb
+
+    return mix_img_ulb, mix_target
+
+
 ##################################################################################################
 ##################################################################################################
 ##################################################################################################
@@ -708,28 +752,31 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
             pred1, cam1, pred_rv1, cam_rv1, feat1 = model(img)
             pred2, cam2, pred_rv2, cam_rv2, feat2 = model(img2)
             
-            # Ulb data
-            #if iteration+1 >= args.mt_warmup * args.max_iter:
-            #ulb_img = torch.cat([img, ulb_img], dim=0)
-            ulb_pred2, ulb_cam2, ulb_pred_rv2, ulb_cam_rv2, ulb_feat2 = model(ulb_img2) ###
-            
-            ###
+            ### Teacher (for ulb)
             ema.apply_shadow()
             with torch.no_grad():
                 ulb_pred1, ulb_cam1, ulb_pred_rv1, ulb_cam_rv1, ulb_feat1 = model(ulb_img)  ###
                 ### Apply strong transforms to pseudo-label(pixelwise matching with ulb_cam2) ###
                 ulb_cam1_s = apply_strong_tr(ulb_cam1, ops2, strong_transforms=strong_transforms)
                 # ulb_cam_rv1_s = apply_strong_tr(ulb_cam_rv1, ops2, strong_transforms=strong_transforms)
-                # ### Make strong augmented (transformed) prediction for MT ###
+                
+                ### Make strong augmented (transformed) prediction for MT ###
                 if 1 in args.ssl_type:
                     ulb_pred1_s = F.avg_pool2d(ulb_cam1_s, kernel_size=(ulb_cam1_s.size(-2), ulb_cam1_s.size(-1)), padding=0)
                     ulb_pred1_s = ulb_pred1_s.view(ulb_pred1_s.size(0), -1)
-                # ### Make masks for pixel-wise MT ###
+                ### Make masks for pixel-wise MT ###
                 if 2 in args.ssl_type or 4 in args.ssl_type :
                     mask = torch.ones_like(ulb_cam1)
                     mask_s = apply_strong_tr(mask, ops2, strong_transforms=strong_transforms)
+
+                ### Cutmix 
+                ulb_img2, ulb_cam1_s = cutmix(ulb_img2, ulb_cam1_s)
+
             ema.restore()
             ###
+
+            ### Student (for ulb)
+            ulb_pred2, ulb_cam2, ulb_pred_rv2, ulb_cam_rv2, ulb_feat2 = model(ulb_img2) ###
 
             # Classification loss 1
             loss_cls = F.multilabel_soft_margin_loss(pred1[:, :-1], label)
