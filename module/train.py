@@ -760,6 +760,10 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
                 ulb_cam1_s = apply_strong_tr(ulb_cam1, ops2, strong_transforms=strong_transforms)
                 # ulb_cam_rv1_s = apply_strong_tr(ulb_cam_rv1, ops2, strong_transforms=strong_transforms)
                 
+                ### Cutmix 
+                if args.use_cutmix:
+                    ulb_img2, ulb_cam1_s = cutmix(ulb_img2, ulb_cam1_s)
+
                 ### Make strong augmented (transformed) prediction for MT ###
                 if 1 in args.ssl_type:
                     ulb_pred1_s = F.avg_pool2d(ulb_cam1_s, kernel_size=(ulb_cam1_s.size(-2), ulb_cam1_s.size(-1)), padding=0)
@@ -768,10 +772,6 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
                 if 2 in args.ssl_type or 4 in args.ssl_type :
                     mask = torch.ones_like(ulb_cam1)
                     mask_s = apply_strong_tr(mask, ops2, strong_transforms=strong_transforms)
-
-                ### Cutmix 
-                if args.use_cutmix:
-                    ulb_img2, ulb_cam1_s = cutmix(ulb_img2, ulb_cam1_s)
 
             ema.restore()
             ###
