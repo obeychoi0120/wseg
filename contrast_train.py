@@ -1,4 +1,5 @@
 import os
+import shutil
 import torch
 import argparse
 from torch.backends import cudnn
@@ -92,6 +93,8 @@ if __name__ == '__main__':
 
     pyutils.Logger(os.path.join(args.log_folder, 'log_cls.log'))
     print(vars(args))
+    shutil.copyfile('./contrast_train.py', os.path.join(args.log_folder, 'contrast_train.py'))
+    shutil.copyfile('./module/train.py', os.path.join(args.log_folder, 'train.py'))
 
     # load dataset
     if args.ssl: ###
