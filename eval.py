@@ -130,6 +130,7 @@ if __name__ == '__main__':
     parser.add_argument('--type', default='png', choices=['npy', 'png'], type=str)
     parser.add_argument('--t', default=None, type=float)
     parser.add_argument('--curve', default=False, type=bool)
+    parser.add_argument('--max_th', default=60, type=int)
     args = parser.parse_args()
 
     if args.type == 'npy':
@@ -143,13 +144,12 @@ if __name__ == '__main__':
         l = []
         p = []
         r = []
-        ths = 50
-        for i in range(ths):
+        for i in range(args.max_th):
             t = i / 100.0
             loglist = do_python_eval(args.predict_dir, args.gt_dir, name_list, 21, args.type, t)
             l.append(loglist['mIoU'])
             p.append(loglist['Precision'])
             r.append(loglist['Recall'])
             print('%d/%d background score: %.3f\tmIoU: %.3f%%\tPrecision: %.3f%%\tRecall: %.3f%%' % 
-                (i, ths, t, loglist['mIoU'], loglist['Precision'], loglist['Recall']))
+                (i, args.max_th, t, loglist['mIoU'], loglist['Precision'], loglist['Recall']))
         writelog(args.logfile, {'mIoU': l, 'Precision': p, 'Recall': r}, args.comment)
