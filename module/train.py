@@ -770,7 +770,8 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
                     mask_s = apply_strong_tr(mask, ops2, strong_transforms=strong_transforms)
 
                 ### Cutmix 
-                ulb_img2, ulb_cam1_s = cutmix(ulb_img2, ulb_cam1_s)
+                if args.use_cutmix:
+                    ulb_img2, ulb_cam1_s = cutmix(ulb_img2, ulb_cam1_s)
 
             ema.restore()
             ###
