@@ -63,6 +63,9 @@ def get_arguments():
     parser.add_argument('--eval', type=bool) #?
     parser.add_argument('--num_sample', default=21, type=int)
     parser.add_argument('--max_iters', default=10000, type=int)
+    parser.add_argument('--start_iter', default=0, type=int) ### resume iteration
+    parser.add_argument('--resume_weights', default=None, type=str) ### resume model path
+    
 
     # hyper-parameters for EPS
     parser.add_argument('--tau', default=0.5, type=float)
@@ -107,6 +110,9 @@ if __name__ == '__main__':
 
     # load network and its pre-trained model
     model = get_model(args)
+    # load when resume training
+    if args.resume_weights is not None:
+        model.load_state_dict(torch.load(args.resume_weights))
 
     # set optimizer
     optimizer = get_optimizer(args, model, max_step)

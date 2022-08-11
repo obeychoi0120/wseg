@@ -728,7 +728,9 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
     #    ema.load(ema_model)
     print(args)
     print('Using Gamma:', gamma)
-    for iteration in range(args.max_iters):
+    if args.start_iter > 0:
+        print(f'Resume training at {args.start_iter} iteration.')
+    for iteration in range(args.start_iter, args.max_iters):
         for _ in range(args.iter_size):
             try:
                 img_id, img, saliency, label = next(lb_loader_iter)
