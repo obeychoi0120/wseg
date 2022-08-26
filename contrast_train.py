@@ -34,7 +34,7 @@ def get_arguments():
     parser.add_argument('--resize_size', default=(448, 768))
 
     ### semi-supervised learning ###
-    parser.add_argument('--ssl', default=False, type=bool)
+    parser.add_argument('--ssl', action='store_true')
     parser.add_argument('--ssl_type', nargs='+', default=[1], type=int) # 1: MT, 2: pixel-wise MT, 3: fixmatch
     parser.add_argument('--train_ulb_list', default='', type=str)
     #parser.add_argument('--warmup_iter', type=int, default=2000)
@@ -60,7 +60,7 @@ def get_arguments():
     parser.add_argument('--num_workers', default=8, type=int)
     parser.add_argument('--wt_dec', default=5e-4, type=float)
     parser.add_argument('--loss_type', default='mse', type=str)
-    parser.add_argument('--eval', type=bool) #?
+    parser.add_argument('--eval', action='store_true') #?
     parser.add_argument('--num_sample', default=21, type=int)
     parser.add_argument('--max_iters', default=10000, type=int)
     parser.add_argument('--start_iters', default=0, type=int) ### resume iteration

@@ -129,7 +129,7 @@ if __name__ == '__main__':
     parser.add_argument('--comment', required=True, type=str)
     parser.add_argument('--type', default='png', choices=['npy', 'png'], type=str)
     parser.add_argument('--t', default=None, type=float)
-    parser.add_argument('--curve', default=False, type=bool)
+    parser.add_argument('--curve', action='store_true')
     parser.add_argument('--max_th', default=60, type=int)
     args = parser.parse_args()
 

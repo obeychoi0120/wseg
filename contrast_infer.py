@@ -36,7 +36,7 @@ def parse_args():
     parser.add_argument("--cam_png", default=None, type=str)
     parser.add_argument("--thr", default=0.20, type=float)
     # for SSL
-    parser.add_argument("--is_unlabeled", default=False, type=bool)
+    parser.add_argument("--is_unlabeled", action='store_true')
     parser.add_argument("--pl_method", default='cls_hard', type=str)
 
     args = parser.parse_args()
