@@ -705,6 +705,7 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
     log_keys = ['loss', 'loss_cls', 'loss_sal', 'loss_nce', 'loss_er', 'loss_ecr']
     if 1 in args.ssl_type:
         log_keys.append('loss_mt')
+        log_keys.append('mt_mask_ratio')
     if 2 in args.ssl_type:
         log_keys.append('loss_pmt')
     if 3 in args.ssl_type:
@@ -813,8 +814,15 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
             ###########           Semi-supervsied Learning           ###########
             #######                1. Logit MSE(L2) loss                 #######
             if 1 in args.ssl_type:
+                ulb_p1_s = torch.sigmoid(ulb_pred1_s)
+                # Calculate loss by threholded class (pos neg both)
+                if args.mt_p:
+                    class_mask = ulb_p1_s.le(1 - args.mt_p) | ulb_p1_s.ge(args.mt_p)
+                else:
+                    class_mask = torch.ones_like(ulb_p1_s)
                 # loss_mt = consistency_loss(torch.sigmoid(ulb_pred2), torch.sigmoid(ulb_pred1), 'L2')
-                loss_mt = consistency_loss(torch.sigmoid(ulb_pred2), torch.sigmoid(ulb_pred1_s), 'L2') # (optional) w.geometry tr.
+                loss_mt = consistency_loss(torch.sigmoid(ulb_pred2), ulb_p1_s, 'L2', class_mask) # (optional) w.geometry tr.
+                mt_mask = class_mask.float().mean()
             
                 mt_warmup = float(np.clip(iteration / (args.mt_warmup * args.max_iters + 1e-9), 0., 1.))
                 loss += loss_mt * args.mt_lambda * mt_warmup
@@ -847,7 +855,8 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
                            'loss_er': loss_er.item(),
                            'loss_ecr': loss_ecr.item()})
             if 1 in args.ssl_type:
-                avg_meter.add({'loss_mt': loss_mt.item()})
+                avg_meter.add({'loss_mt': loss_mt.item(),
+                               'mt_mask_ratio': mt_mask.item()})
             if 2 in args.ssl_type:
                 avg_meter.add({'loss_pmt': loss_pmt.item()})
             if 3 in args.ssl_type:
@@ -879,7 +888,8 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
                       'Loss_ER: %.4f' % (tb_dict['train/loss_er']),
                       'Loss_ECR:%.4f' % (tb_dict['train/loss_ecr']), end=' ')
                 if 1 in args.ssl_type:
-                    print('Loss_MT: %.4f' % (tb_dict['train/loss_mt']), end=' ')
+                    print('Loss_MT: %.4f' % (tb_dict['train/loss_mt']),
+                          'MT_Mask_Ratio:%.4f' % (tb_dict['train/mt_mask_ratio']), end=' ')
                 if 2 in args.ssl_type:
                     print('Loss_PMT: %.4f' % (tb_dict['train/loss_pmt']), end=' ')
                 if 3 in args.ssl_type:
