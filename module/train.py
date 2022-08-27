@@ -821,7 +821,7 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
                 else:
                     class_mask = torch.ones_like(ulb_p1_s)
                 # loss_mt = consistency_loss(torch.sigmoid(ulb_pred2), torch.sigmoid(ulb_pred1), 'L2')
-                loss_mt = consistency_loss(torch.sigmoid(ulb_pred2), ulb_p1_s, 'L2', class_mask) # (optional) w.geometry tr.
+                loss_mt = consistency_loss(torch.sigmoid(ulb_pred2), ulb_p1_s, 'L2', mask=class_mask) # (optional) w.geometry tr.
                 mt_mask = class_mask.float().mean()
             
                 mt_warmup = float(np.clip(iteration / (args.mt_warmup * args.max_iters + 1e-9), 0., 1.))
