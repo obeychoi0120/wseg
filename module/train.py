@@ -520,7 +520,7 @@ def cutmix(img_ulb, mask_ulb, feat_ulb=None):
         return mix_img_ulb, mix_target
 
 
-def class_discriminative_contrastive_loss(cam, feat, p_cutoff=0., temperature=0.07, eps=1e-9, normalize=True):
+def class_discriminative_contrastive_loss(cam, feat, p_cutoff=0., temperature=0.07, eps=1e-9, normalize=False):
     B, FS, H, W = feat.size()
     cam = cam.detach().permute(0,2,3,1).view(B, H*W, cam.size(1))
     feat = feat.permute(0,2,3,1).view(B, H*W, FS)
@@ -551,11 +551,12 @@ def class_discriminative_contrastive_loss(cam, feat, p_cutoff=0., temperature=0.
                                                 0)      
 
     # Log_prob (for all Similairites)
-    exp_logits = torch.exp(logits) * self_mask
-    log_prob = logits - torch.log(exp_logits.sum(-1, keepdim=True))
+    logit_mask = self_mask * th_mask
+    exp_logits = torch.exp(logits) * logit_mask
+    log_prob = logits - torch.log(exp_logits.sum(-1, keepdim=True) + eps)
 
     # compute mean of log-likelihood (Positive)
-    mask = th_mask * class_mask * self_mask
+    mask = logit_mask * class_mask
     pos_mean_log_prob = (mask * log_prob).sum(-1) / (mask.sum(-1) + eps)
 
     # Final loss
