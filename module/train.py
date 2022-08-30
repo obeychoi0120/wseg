@@ -408,11 +408,8 @@ def consistency_cam_loss(cam_from_aug, augmented_cam, mask=None):
     return nce_softmax_loss(out)
 
 
+# Implementation from https://fyubang.com/2019/06/01/ema/
 class EMA:
-    """
-    Implementation from https://fyubang.com/2019/06/01/ema/
-    """
-
     def __init__(self, model, decay):
         self.model = model
         self.decay = decay
@@ -488,11 +485,15 @@ def rand_bbox(size, l):
     return bbx1, bby1, bbx2, bby2
     
 
-def cutmix(img_ulb, mask_ulb):
+def cutmix(img_ulb, mask_ulb, feat_ulb=None):
     mix_img_ulb = img_ulb.clone()
     mix_target = mask_ulb.clone()
+    if feat_ulb is not None:
+        mix_feat = feat_ulb.clone()
+
     x_r = img_ulb.size(-1) / mask_ulb.size(-1)
     y_r = img_ulb.size(-2) / mask_ulb.size(-2)
+    # mask size == feat size
     
     u_rand_index = torch.randperm(img_ulb.size()[0])[:img_ulb.size()[0]].cuda()
     u_bbx1, u_bby1, u_bbx2, u_bby2 = rand_bbox(img_ulb.size(), l=np.random.beta(4, 4))
@@ -506,10 +507,61 @@ def cutmix(img_ulb, mask_ulb):
 
         mix_target[i, :, u_bbx1_t[i]:u_bbx2_t[i], u_bby1_t[i]:u_bby2_t[i]] = \
             mask_ulb[u_rand_index[i], :, u_bbx1_t[i]:u_bbx2_t[i], u_bby1_t[i]:u_bby2_t[i]]
+        
+        if feat_ulb is not None:
+            mix_feat[i, :, u_bbx1_t[i]:u_bbx2_t[i], u_bby1_t[i]:u_bby2_t[i]] = \
+                feat_ulb[u_rand_index[i], :, u_bbx1_t[i]:u_bbx2_t[i], u_bby1_t[i]:u_bby2_t[i]]
 
     del img_ulb, mask_ulb
 
-    return mix_img_ulb, mix_target
+    if feat_ulb is not None:
+        return mix_img_ulb, mix_target, mix_feat
+    else:    
+        return mix_img_ulb, mix_target
+
+
+def class_discriminative_contrastive_loss(cam, feat, p_cutoff=0., temperature=0.07, eps=1e-9, normalize=True):
+    B, FS, H, W = feat.size()
+    cam = cam.detach().permute(0,2,3,1).view(B, H*W, cam.size(1))
+    feat = feat.permute(0,2,3,1).view(B, H*W, FS)
+    if normalize:
+        feat = F.normalize(feat)
+
+    pseudo_label = torch.softmax(cam, dim=-1)
+    max_probs, max_idx = torch.max(pseudo_label, dim=-1, keepdim=True)
+
+    # Thresholding Mask
+    th_mask_1d = max_probs.ge(p_cutoff).float()
+    th_mask = torch.matmul(th_mask_1d, th_mask_1d.transpose(1,2))
+
+    # Class Mask (Same class positive, other negative)
+    class_mask_1d = torch.zeros_like(cam).scatter(-1, max_idx, 1.)
+    class_mask = torch.matmul(class_mask_1d, class_mask_1d.transpose(1,2))
+
+    # Calculate Feature Similarity
+    feature_contrast = torch.div( torch.matmul(feat, feat.transpose(1,2)), temperature )
+    
+    # Normalize
+    features_max, _ = torch.max(feature_contrast, dim=-1, keepdim=True)
+    logits = feature_contrast - features_max.detach()
+
+    # Ignore self-similarity
+    self_mask = torch.ones_like(logits).scatter(-1, 
+                                                torch.arange(H*W).view(-1, 1).repeat(B,1,1).to(logits.device), 
+                                                0)      
+
+    # Log_prob (for all Similairites)
+    exp_logits = torch.exp(logits) * self_mask
+    log_prob = logits - torch.log(exp_logits.sum(-1, keepdim=True))
+
+    # compute mean of log-likelihood (Positive)
+    mask = th_mask * class_mask * self_mask
+    pos_mean_log_prob = (mask * log_prob).sum(-1) / (mask.sum(-1) + eps)
+
+    # Final loss
+    loss = - pos_mean_log_prob # (temperature / base_temperature)
+
+    return loss.mean(), mask.mean()
 
 
 ##################################################################################################
@@ -713,6 +765,9 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
         log_keys.append('mask_ratio')
     if 4 in args.ssl_type:
         log_keys.append('loss_con')
+    if 5 in args.ssl_type:
+        log_keys.append('loss_cdc')
+        log_keys.append('cdc_mask_ratio')
     avg_meter = pyutils.AverageMeter(*log_keys) ###
     
     tb_writer = SummaryWriter(args.log_folder) ###
@@ -763,10 +818,13 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
                 ### Apply strong transforms to pseudo-label(pixelwise matching with ulb_cam2) ###
                 ulb_cam1_s = apply_strong_tr(ulb_cam1, ops2, strong_transforms=strong_transforms)
                 # ulb_cam_rv1_s = apply_strong_tr(ulb_cam_rv1, ops2, strong_transforms=strong_transforms)
+                # if 5 in args.ssl_type:
+                #     ulb_feat1_s = apply_strong_tr(ulb_feat1, ops2, strong_transforms=strong_transforms)
                 
                 ### Cutmix 
                 if args.use_cutmix:
                     ulb_img2, ulb_cam1_s = cutmix(ulb_img2, ulb_cam1_s)
+                    # ulb_img2, ulb_cam1_s, ulb_feat1_s = cutmix(ulb_img2, ulb_cam1_s, ulb_feat1_s)
 
                 ### Make strong augmented (transformed) prediction for MT ###
                 if 1 in args.ssl_type:
@@ -782,6 +840,7 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
 
             ### Student (for ulb)
             ulb_pred2, ulb_cam2, ulb_pred_rv2, ulb_cam_rv2, ulb_feat2 = model(ulb_img2) ###
+
 
             # Classification loss 1
             loss_cls = F.multilabel_soft_margin_loss(pred1[:, :-1], label)
@@ -848,6 +907,13 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
                 warmup = float(np.clip(iteration / (args.mt_warmup * args.max_iters + 1e-9), 0., 1.))
                 loss += loss_con * args.ssl_lambda * warmup
 
+            ######      5. Class Discriminative(Divide) Contrastive loss       ######
+            if 5 in args.ssl_type:
+                loss_cdc, cdc_mask = class_discriminative_contrastive_loss(ulb_cam2, ulb_feat2, args.p_cutoff)
+
+                loss += loss_cdc * args.ssl_lambda
+
+
             avg_meter.add({'loss': loss.item(),
                            'loss_cls': loss_cls.item(),
                            'loss_sal': loss_sal.item(),
@@ -864,6 +930,9 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
                                'mask_ratio': mask.item()})
             if 4 in args.ssl_type:
                 avg_meter.add({'loss_con': loss_con.item()})
+            if 5 in args.ssl_type:
+                avg_meter.add({'loss_cdc': loss_cdc.item(),
+                               'cdc_mask_ratio': cdc_mask.item()})
             ###
 
             optimizer.zero_grad()
@@ -897,6 +966,9 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
                           'Mask_Ratio:%.4f' % (tb_dict['train/mask_ratio']), end=' ') ###
                 if 4 in args.ssl_type:
                     print('Loss_Consistency: %.4f' % (tb_dict['train/loss_con']), end=' ')
+                if 5 in args.ssl_type:
+                    print('Loss_CDC: %.4f' % (tb_dict['train/loss_cdc']),
+                          'CDC Mask_Ratio:%.4f' % (tb_dict['train/cdc_mask_ratio']), end=' ')
                 print('\n                ',
                       'imps:%.1f' % ((iteration+1) * args.batch_size / timer.get_stage_elapsed()),
                       'Fin:%s' % (timer.str_est_finish()),
