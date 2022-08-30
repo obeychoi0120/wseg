@@ -520,7 +520,7 @@ def cutmix(img_ulb, mask_ulb, feat_ulb=None):
         return mix_img_ulb, mix_target
 
 
-def class_discriminative_contrastive_loss(cam, feat, p_cutoff=0., temperature=0.07, eps=1e-9, normalize=False):
+def class_discriminative_contrastive_loss(cam, feat, p_cutoff=0., temperature=0.07, eps=1e-9, normalize=True):
     B, FS, H, W = feat.size()
     cam = cam.detach().permute(0,2,3,1).view(B, H*W, cam.size(1))
     feat = feat.permute(0,2,3,1).view(B, H*W, FS)
@@ -912,7 +912,7 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
             if 5 in args.ssl_type:
                 loss_cdc, cdc_mask = class_discriminative_contrastive_loss(ulb_cam2, ulb_feat2, args.p_cutoff)
 
-                loss += loss_cdc * args.ssl_lambda
+                loss += loss_cdc * args.cdc_lambda
 
 
             avg_meter.add({'loss': loss.item(),
