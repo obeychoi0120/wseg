@@ -45,6 +45,7 @@ def get_arguments():
     parser.add_argument('--mt_p', default=0., type=float) # ratio of ssl loss
     parser.add_argument('--ssl_lambda', default=1.0, type=float) # ratio of ssl loss
     parser.add_argument('--cdc_lambda', default=1.0, type=float) # ratio of cdc loss
+    parser.add_argument('--cdc_inter', action='store_true') # Calculate Inter-image pixel
     parser.add_argument('--ulb_aug_type', default='strong', type=str) # None / weak / strong
     parser.add_argument('--n_strong_aug', default=3, type=int) # number of RandAug
     parser.add_argument('--use_cutmix', action='store_true') # Use CutMix

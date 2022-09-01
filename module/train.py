@@ -520,10 +520,15 @@ def cutmix(img_ulb, mask_ulb, feat_ulb=None):
         return mix_img_ulb, mix_target
 
 
-def class_discriminative_contrastive_loss(cam, feat, p_cutoff=0., temperature=0.07, eps=1e-9, normalize=True):
+def class_discriminative_contrastive_loss(cam, feat, p_cutoff=0., inter=False, temperature=0.07, eps=1e-9, normalize=True):
     B, FS, H, W = feat.size()
-    cam = cam.detach().permute(0,2,3,1).view(B, H*W, cam.size(1))
-    feat = feat.permute(0,2,3,1).view(B, H*W, FS)
+    if inter:
+        cam = cam.detach().permute(0,2,3,1).reshape(B*H*W, cam.size(1))
+        feat = feat.permute(0,2,3,1).reshape(B*H*W, FS)
+    else:
+        cam = cam.detach().permute(0,2,3,1).view(B, H*W, cam.size(1))
+        feat = feat.permute(0,2,3,1).view(B, H*W, FS)
+
     if normalize:
         feat = F.normalize(feat)
 
@@ -532,26 +537,35 @@ def class_discriminative_contrastive_loss(cam, feat, p_cutoff=0., temperature=0.
 
     # Thresholding Mask
     th_mask_1d = max_probs.ge(p_cutoff).float()
-    th_mask = torch.matmul(th_mask_1d, th_mask_1d.transpose(1,2))
+    th_mask = torch.matmul(th_mask_1d, th_mask_1d.transpose(-2,-1))
+
+    # Remove Correlation of Background pixels
+    bg_mask_1d = (max_idx == (cam.size(-1) - 1)).float()
+    bg_mask = torch.matmul(bg_mask_1d, bg_mask_1d.transpose(-2,-1)).logical_not()
 
     # Class Mask (Same class positive, other negative)
     class_mask_1d = torch.zeros_like(cam).scatter(-1, max_idx, 1.)
-    class_mask = torch.matmul(class_mask_1d, class_mask_1d.transpose(1,2))
+    class_mask = torch.matmul(class_mask_1d, class_mask_1d.transpose(-2,-1))
 
     # Calculate Feature Similarity
-    feature_contrast = torch.div( torch.matmul(feat, feat.transpose(1,2)), temperature )
+    feature_contrast = torch.div( torch.matmul(feat, feat.transpose(-2,-1)), temperature )
     
     # Normalize
     features_max, _ = torch.max(feature_contrast, dim=-1, keepdim=True)
     logits = feature_contrast - features_max.detach()
 
     # Ignore self-similarity
-    self_mask = torch.ones_like(logits).scatter(-1, 
-                                                torch.arange(H*W).view(-1, 1).repeat(B,1,1).to(logits.device), 
-                                                0)      
+    if inter:
+        self_mask = torch.ones_like(logits).scatter(-1, 
+                                                    torch.arange(B*H*W).view(-1, 1).to(logits.device), 
+                                                    0)      
+    else:
+        self_mask = torch.ones_like(logits).scatter(-1, 
+                                                    torch.arange(H*W).view(-1, 1).repeat(B,1,1).to(logits.device), 
+                                                    0)      
 
     # Log_prob (for all Similairites)
-    logit_mask = self_mask * th_mask
+    logit_mask = self_mask * th_mask * bg_mask
     exp_logits = torch.exp(logits) * logit_mask
     log_prob = logits - torch.log(exp_logits.sum(-1, keepdim=True) + eps)
 
@@ -562,7 +576,7 @@ def class_discriminative_contrastive_loss(cam, feat, p_cutoff=0., temperature=0.
     # Final loss
     loss = - pos_mean_log_prob # (temperature / base_temperature)
 
-    return loss.mean(), mask.mean()
+    return loss.mean(), mask.mean(), logit_mask.mean()
 
 
 ##################################################################################################
@@ -768,7 +782,8 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
         log_keys.append('loss_con')
     if 5 in args.ssl_type:
         log_keys.append('loss_cdc')
-        log_keys.append('cdc_mask_ratio')
+        log_keys.append('cdc_pos_ratio')
+        log_keys.append('cdc_neg_ratio')
     avg_meter = pyutils.AverageMeter(*log_keys) ###
     
     tb_writer = SummaryWriter(args.log_folder) ###
@@ -817,10 +832,13 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
             with torch.no_grad():
                 ulb_pred1, ulb_cam1, ulb_pred_rv1, ulb_cam_rv1, ulb_feat1 = model(ulb_img)  ###
                 ### Apply strong transforms to pseudo-label(pixelwise matching with ulb_cam2) ###
-                ulb_cam1_s = apply_strong_tr(ulb_cam1, ops2, strong_transforms=strong_transforms)
-                # ulb_cam_rv1_s = apply_strong_tr(ulb_cam_rv1, ops2, strong_transforms=strong_transforms)
-                # if 5 in args.ssl_type:
-                #     ulb_feat1_s = apply_strong_tr(ulb_feat1, ops2, strong_transforms=strong_transforms)
+                if args.ulb_aug_type == 'strong':
+                    ulb_cam1_s = apply_strong_tr(ulb_cam1, ops2, strong_transforms=strong_transforms)
+                    # ulb_cam_rv1_s = apply_strong_tr(ulb_cam_rv1, ops2, strong_transforms=strong_transforms)
+                    # if 5 in args.ssl_type:
+                    #     ulb_feat1_s = apply_strong_tr(ulb_feat1, ops2, strong_transforms=strong_transforms)
+                else: # weak aug
+                    ulb_cam1_s = ulb_cam1
                 
                 ### Cutmix 
                 if args.use_cutmix:
@@ -878,11 +896,12 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
                 # Calculate loss by threholded class (pos neg both)
                 if args.mt_p:
                     class_mask = ulb_p1_s.le(1 - args.mt_p) | ulb_p1_s.ge(args.mt_p)
+                    mt_mask = class_mask.float().mean()
                 else:
                     class_mask = torch.ones_like(ulb_p1_s)
+                    mt_mask = torch.zeros(1)
                 # loss_mt = consistency_loss(torch.sigmoid(ulb_pred2), torch.sigmoid(ulb_pred1), 'L2')
                 loss_mt = consistency_loss(torch.sigmoid(ulb_pred2), ulb_p1_s, 'L2', mask=class_mask) # (optional) w.geometry tr.
-                mt_mask = class_mask.float().mean()
             
                 mt_warmup = float(np.clip(iteration / (args.mt_warmup * args.max_iters + 1e-9), 0., 1.))
                 loss += loss_mt * args.mt_lambda * mt_warmup
@@ -910,7 +929,7 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
 
             ######      5. Class Discriminative(Divide) Contrastive loss       ######
             if 5 in args.ssl_type:
-                loss_cdc, cdc_mask = class_discriminative_contrastive_loss(ulb_cam2, ulb_feat2, args.p_cutoff)
+                loss_cdc, cdc_pos_mask, cdc_neg_mask = class_discriminative_contrastive_loss(ulb_cam2, ulb_feat2, args.p_cutoff, inter=args.cdc_inter)
 
                 loss += loss_cdc * args.cdc_lambda
 
@@ -933,7 +952,8 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
                 avg_meter.add({'loss_con': loss_con.item()})
             if 5 in args.ssl_type:
                 avg_meter.add({'loss_cdc': loss_cdc.item(),
-                               'cdc_mask_ratio': cdc_mask.item()})
+                               'cdc_pos_ratio': cdc_pos_mask.item(),
+                               'cdc_neg_ratio': cdc_neg_mask.item()})
             ###
 
             optimizer.zero_grad()
@@ -969,9 +989,9 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
                     print('Loss_Consistency: %.4f' % (tb_dict['train/loss_con']), end=' ')
                 if 5 in args.ssl_type:
                     print('Loss_CDC: %.4f' % (tb_dict['train/loss_cdc']),
-                          'CDC Mask_Ratio:%.4f' % (tb_dict['train/cdc_mask_ratio']), end=' ')
-                print('\n                ',
-                      'imps:%.1f' % ((iteration+1) * args.batch_size / timer.get_stage_elapsed()),
+                          'CDC_Pos_Ratio:%.4f' % (tb_dict['train/cdc_pos_ratio']),
+                          'CDC_Neg_Ratio:%.4f' % (tb_dict['train/cdc_neg_ratio']), end=' ')
+                print('imps:%.1f' % ((iteration+1) * args.batch_size / timer.get_stage_elapsed()),
                       'Fin:%s' % (timer.str_est_finish()),
                       'lr: %.4f' % (tb_dict['train/lr']), flush=True)
             
