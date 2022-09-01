@@ -127,7 +127,7 @@ class ClassificationDatasetWithSaliency(ImageDataset):
         elif self.aug_type == 'weak':
             img2, saliency2, _  = self.transform_with_mask(img, saliency, True, False, *weak_tr)
             img2, saliency2 = self.totensor(img2, saliency2)
-            return img_id, img1, saliency1, img2, saliency2, None, label
+            return img_id, img1, saliency1, img2, saliency2, [], label
         # with strong augmetation (for MT, FixMatch)
         elif self.aug_type == 'strong':
             ### TODO: mask transform, return aug information
