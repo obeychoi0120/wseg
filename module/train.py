@@ -929,7 +929,7 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
 
             ######      5. Class Discriminative(Divide) Contrastive loss       ######
             if 5 in args.ssl_type:
-                loss_cdc, cdc_pos_mask, cdc_neg_mask = class_discriminative_contrastive_loss(ulb_cam2, ulb_feat2, args.p_cutoff, inter=args.cdc_inter)
+                loss_cdc, cdc_pos_mask, cdc_neg_mask = class_discriminative_contrastive_loss(ulb_cam2, ulb_feat2, args.p_cutoff, inter=args.cdc_inter, temperature=args.cdc_T, normalize=args.cdc_norm)
 
                 loss += loss_cdc * args.cdc_lambda
 
