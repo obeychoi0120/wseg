@@ -831,6 +831,7 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
             ema.apply_shadow()
             with torch.no_grad():
                 ulb_pred1, ulb_cam1, ulb_pred_rv1, ulb_cam_rv1, ulb_feat1 = model(ulb_img)  ###
+                
                 ### Apply strong transforms to pseudo-label(pixelwise matching with ulb_cam2) ###
                 if args.ulb_aug_type == 'strong':
                     ulb_cam1_s = apply_strong_tr(ulb_cam1, ops2, strong_transforms=strong_transforms)
@@ -858,7 +859,10 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
             ###
 
             ### Student (for ulb)
-            ulb_pred2, ulb_cam2, ulb_pred_rv2, ulb_cam_rv2, ulb_feat2 = model(ulb_img2) ###
+            if 5 not in args.ssl_type:
+                ulb_pred2, ulb_cam2, ulb_pred_rv2, ulb_cam_rv2, ulb_feat2 = model(ulb_img2) ###
+            else:
+                ulb_pred2, ulb_cam2, ulb_pred_rv2, ulb_cam_rv2, ulb_feat_low2, ulb_feat2 = model(ulb_img, require_feats_high=True)  ###
 
 
             # Classification loss 1
