@@ -832,6 +832,7 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
             
             ulb_img = ulb_img.cuda(non_blocking=True)               ###
             ulb_img2 = ulb_img2.cuda(non_blocking=True)               ###
+            ulb_sal = ulb_sal.cuda(non_blocking=True)               ###
 
             img2 = F.interpolate(img, size=(128, 128), mode='bilinear', align_corners=True)
             saliency2 = F.interpolate(saliency, size=(128, 128), mode='bilinear', align_corners=True)
