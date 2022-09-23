@@ -218,16 +218,25 @@ class RandAugment:
         self.augment_list = augment_list()
 
         
-    def __call__(self, img):
-        #ops = random.choices(self.augment_list, k=self.n)
-        transform_idxs = random.choices(range(len(self.augment_list)), k=self.n)
-        trs = []
-        for idx in transform_idxs: #ops
-            op, min_val, max_val = self.augment_list[idx]
-            val = min_val + float(max_val - min_val)*random.random()
-            img = op(img, val) 
-            # save transforms
-            trs.append([idx, val])
+    def __call__(self, img, trs=None, only_geometric=False):
+        if trs is None:
+            #ops = random.choices(self.augment_list, k=self.n)
+            transform_idxs = random.choices(range(len(self.augment_list)), k=self.n)
+            trs = []
+            for i, idx in enumerate(transform_idxs): #ops
+                op, min_val, max_val = self.augment_list[idx]
+                val = min_val + float(max_val - min_val)*random.random()
+                img = op(img, val) 
+                # save transforms
+                trs.append([idx, val])
+        
+        # Transform value exists (must use only_geometric where trs not None)
+        else:
+            for idx, val in trs:
+                if only_geometric and idx not in [7, 9, 10, 12, 13]:
+                    continue
+                op, min_val, max_val = self.augment_list[idx]
+                img = op(img, val)
 
         #cutout_val = random.random() * 0.5 
         #img = Cutout(img, cutout_val) #for fixmatch

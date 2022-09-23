@@ -485,15 +485,15 @@ def rand_bbox(size, l):
     return bbx1, bby1, bbx2, bby2
     
 
-def cutmix(img_ulb, mask_ulb, feat_ulb=None):
+def cutmix(img_ulb, target, mask=None):
     mix_img_ulb = img_ulb.clone()
-    mix_target = mask_ulb.clone()
-    if feat_ulb is not None:
-        mix_feat = feat_ulb.clone()
+    mix_target = target.clone()
+    if mask is not None:
+        mix_mask = mask.clone()
 
-    x_r = img_ulb.size(-1) / mask_ulb.size(-1)
-    y_r = img_ulb.size(-2) / mask_ulb.size(-2)
-    # mask size == feat size
+    x_r = img_ulb.size(-1) / target.size(-1)
+    y_r = img_ulb.size(-2) / target.size(-2)
+    # cam size == feat size
     
     u_rand_index = torch.randperm(img_ulb.size()[0])[:img_ulb.size()[0]].cuda()
     u_bbx1, u_bby1, u_bbx2, u_bby2 = rand_bbox(img_ulb.size(), l=np.random.beta(4, 4))
@@ -506,16 +506,16 @@ def cutmix(img_ulb, mask_ulb, feat_ulb=None):
             img_ulb[u_rand_index[i], :, u_bbx1[i]:u_bbx2[i], u_bby1[i]:u_bby2[i]]
 
         mix_target[i, :, u_bbx1_t[i]:u_bbx2_t[i], u_bby1_t[i]:u_bby2_t[i]] = \
-            mask_ulb[u_rand_index[i], :, u_bbx1_t[i]:u_bbx2_t[i], u_bby1_t[i]:u_bby2_t[i]]
+            target[u_rand_index[i], :, u_bbx1_t[i]:u_bbx2_t[i], u_bby1_t[i]:u_bby2_t[i]]
         
-        if feat_ulb is not None:
-            mix_feat[i, :, u_bbx1_t[i]:u_bbx2_t[i], u_bby1_t[i]:u_bby2_t[i]] = \
-                feat_ulb[u_rand_index[i], :, u_bbx1_t[i]:u_bbx2_t[i], u_bby1_t[i]:u_bby2_t[i]]
+        if mask is not None:
+            mix_mask[i, :, u_bbx1[i]:u_bbx2[i], u_bby1[i]:u_bby2[i]] = \
+                mask[u_rand_index[i], :, u_bbx1[i]:u_bbx2[i], u_bby1[i]:u_bby2[i]]
 
-    del img_ulb, mask_ulb
+    del img_ulb, target
 
-    if feat_ulb is not None:
-        return mix_img_ulb, mix_target, mix_feat
+    if mask is not None:
+        return mix_img_ulb, mix_target, mix_mask
     else:    
         return mix_img_ulb, mix_target
 
@@ -807,12 +807,12 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
         for _ in range(args.iter_size):
             try:
                 img_id, img, saliency, label = next(lb_loader_iter)
-                ulb_img_id, ulb_img, _, ulb_img2, _, ops2, _ = next(ulb_loader_iter)   ###
+                ulb_img_id, ulb_img, ulb_sal, ulb_img2, ulb_sal2, ops2, _ = next(ulb_loader_iter)   ###
             except:
                 lb_loader_iter = iter(train_dataloader)
                 img_id, img, saliency, label = next(lb_loader_iter)
                 ulb_loader_iter = iter(train_ulb_dataloader)        ###
-                ulb_img_id, ulb_img, _, ulb_img2, _, ops2, _ = next(ulb_loader_iter)   ###
+                ulb_img_id, ulb_img, ulb_sal, ulb_img2, _, ops2, _ = next(ulb_loader_iter)   ###
                 
             img = img.cuda(non_blocking=True)
             saliency = saliency.cuda(non_blocking=True)
@@ -832,6 +832,13 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
             with torch.no_grad():
                 ulb_pred1, ulb_cam1, ulb_pred_rv1, ulb_cam_rv1, ulb_feat1 = model(ulb_img)  ###
                 
+                ### Post-processing unlabeled CAM with saliency map
+                if args.use_ulb_saliency:
+                    ulb_cam1[:,:-1] *= F.interpolate(ulb_sal, size=(ulb_cam1.size(-2), ulb_cam1.size(-1)))
+                    
+                    # ulb_cam1[:,:-1] *= (F.interpolate(ulb_sal, size=(ulb_cam1.size(-2), ulb_cam1.size(-1))) + 0.1)
+                    # ulb_cam1[:,:-1] /= 1.1
+
                 ### Apply strong transforms to pseudo-label(pixelwise matching with ulb_cam2) ###
                 if args.ulb_aug_type == 'strong':
                     ulb_cam1_s = apply_strong_tr(ulb_cam1, ops2, strong_transforms=strong_transforms)

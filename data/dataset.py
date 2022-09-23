@@ -161,7 +161,9 @@ class ClassificationDatasetWithSaliency(ImageDataset):
         if strong:
             for tr in self.strong_transforms:
                 img = tr(img)
+                mask = tr(mask)
             img, strong_tr = self.randaug(img) # saliency2
+            mask, _ = self.randaug(mask, trs=strong_tr, only_geometric=True)
 
         img = np.asarray(img, dtype=np.float32)
         mask = np.asarray(mask, dtype=np.float32)

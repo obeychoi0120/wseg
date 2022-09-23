@@ -51,6 +51,7 @@ def get_arguments():
     parser.add_argument('--ulb_aug_type', default='strong', type=str) # None / weak / strong
     parser.add_argument('--n_strong_aug', default=3, type=int) # number of RandAug
     parser.add_argument('--use_cutmix', action='store_true') # Use CutMix
+    parser.add_argument('--use_ulb_saliency', action='store_true') # Use Saliency map for unlabeled teacher
     parser.add_argument('--p_cutoff', default=0.95, type=float)
     parser.add_argument('--T', type=float, default=0.5)
     parser.add_argument('--soft_label', action='store_true') # hard label(Default) or soft label
