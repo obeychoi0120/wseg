@@ -523,60 +523,68 @@ def cutmix(img_ulb, target, mask=None):
 def class_discriminative_contrastive_loss(cam, feat, p_cutoff=0., inter=False, temperature=0.07, eps=1e-9, normalize=True):
     B, FS, H, W = feat.size()
     if inter:
-        cam = cam.detach().permute(0,2,3,1).reshape(B*H*W, cam.size(1))
-        feat = feat.permute(0,2,3,1).reshape(B*H*W, FS)
+        cam = cam.permute(0,2,3,1).reshape(B*H*W, cam.size(1)).detach()
+        feat = feat.permute(1,0,2,3).view(FS, -1)
     else:
-        cam = cam.detach().permute(0,2,3,1).view(B, H*W, cam.size(1))
-        feat = feat.permute(0,2,3,1).view(B, H*W, FS)
+        # cam = cam.permute(0,2,3,1).view(B, H*W, cam.size(1)).detach()
+        # feat = feat.permute(0,2,3,1).view(B, H*W, FS)
+        cam = cam.view(B, cam.size(1), -1).detach()
+        feat = feat.view(B, FS, -1)
 
     if normalize:
         feat = F.normalize(feat)
 
-    pseudo_label = torch.softmax(cam, dim=-1)
-    max_probs, max_idx = torch.max(pseudo_label, dim=-1, keepdim=True)
-
-    # Thresholding Mask
-    th_mask_1d = max_probs.ge(p_cutoff).float()
-    th_mask = torch.matmul(th_mask_1d, th_mask_1d.transpose(-2,-1))
-
-    # Remove Correlation of Background pixels
-    bg_mask_1d = (max_idx == (cam.size(-1) - 1)).float()
-    bg_mask = torch.matmul(bg_mask_1d, bg_mask_1d.transpose(-2,-1)).logical_not()
-
-    # Class Mask (Same class positive, other negative)
-    class_mask_1d = torch.zeros_like(cam).scatter(-1, max_idx, 1.)
-    class_mask = torch.matmul(class_mask_1d, class_mask_1d.transpose(-2,-1))
-
     # Calculate Feature Similarity
-    feature_contrast = torch.div( torch.matmul(feat, feat.transpose(-2,-1)), temperature )
+    # feature_contrast = torch.div( torch.matmul(feat, feat.transpose(-2,-1)), temperature )
+    feature_contrast = torch.div(torch.matmul(feat.transpose(-2,-1), feat), temperature)
     
     # Normalize
     features_max, _ = torch.max(feature_contrast, dim=-1, keepdim=True)
     logits = feature_contrast - features_max.detach()
 
-    # Ignore self-similarity
-    if inter:
-        self_mask = torch.ones_like(logits).scatter(-1, 
-                                                    torch.arange(B*H*W).view(-1, 1).to(logits.device), 
-                                                    0)      
-    else:
-        self_mask = torch.ones_like(logits).scatter(-1, 
-                                                    torch.arange(H*W).view(-1, 1).repeat(B,1,1).to(logits.device), 
-                                                    0)      
+    # Make Pseudo-labels, Masks
+    with torch.no_grad():
+        # Make pseudo label
+        pseudo_label = torch.softmax(cam, dim=-2)
+        max_probs, max_idx = torch.max(pseudo_label, dim=-2, keepdim=True)
+
+        # Thresholding Mask
+        th_mask_1d = max_probs.ge(p_cutoff).float()
+        th_mask = torch.matmul(th_mask_1d.transpose(-2,-1), th_mask_1d)
+
+        # Remove Correlation of Background pixels
+        bg_mask_1d = (max_idx == (cam.size(-2) - 1)).float()
+        bg_mask = torch.matmul(bg_mask_1d.transpose(-2,-1), bg_mask_1d).logical_not()
+
+        # # Class Mask (Same class positive, other negative)
+        class_mask_1d = torch.zeros_like(cam).scatter(-2, max_idx, 1.)
+        class_mask = torch.matmul(class_mask_1d.transpose(-2,-1), class_mask_1d)
+        # class_mask = torch.matmul(cam.transpose(-2,-1), cam).ge(p_cutoff*p_cutoff).float()
+
+        # Ignore self-similarity
+        if inter:
+            self_mask = torch.ones_like(logits).scatter(-1, 
+                                                        torch.arange(B*H*W).view(-1, 1).to(logits.device), 
+                                                        0)      
+        else:
+            self_mask = torch.ones_like(logits).scatter(-1, 
+                                                        torch.arange(H*W).view(-1, 1).repeat(B,1,1).to(logits.device), 
+                                                        0)      
+        # Final Masks
+        logit_mask = self_mask * th_mask * bg_mask
+        mask = logit_mask * class_mask
+
 
     # Log_prob (for all Similairites)
-    logit_mask = self_mask * th_mask * bg_mask
     exp_logits = torch.exp(logits) * logit_mask
     log_prob = logits - torch.log(exp_logits.sum(-1, keepdim=True) + eps)
 
-    # compute mean of log-likelihood (Positive)
-    mask = logit_mask * class_mask
+    # # compute mean of log-likelihood (Positive)
     pos_mean_log_prob = (mask * log_prob).sum(-1) / (mask.sum(-1) + eps)
 
-    # Final loss
+    # # Final loss
     loss = - pos_mean_log_prob # (temperature / base_temperature)
-
-    return loss.mean(), mask.mean(), logit_mask.mean()
+    return loss.mean(), mask.mean().detach(), logit_mask.mean().detach()
 
 
 ##################################################################################################
@@ -788,6 +796,10 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
     
     tb_writer = SummaryWriter(args.log_folder) ###
     timer = pyutils.Timer("Session started: ")
+    ### validation logging
+    val_num = 10
+    val_freq = max_step // val_num
+
     lb_loader_iter = iter(train_dataloader)
     ulb_loader_iter = iter(train_ulb_dataloader) ###
     strong_transforms = tensor_augment_list() ###
@@ -1006,8 +1018,9 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
                       'Fin:%s' % (timer.str_est_finish()),
                       'lr: %.4f' % (tb_dict['train/lr']), flush=True)
             
-            # Validate 10 times
-            if (optimizer.global_step-1) % (max_step // 10) == 0:
+            # Validate K times
+            current_step = optimizer.global_step-(max_step % val_freq)
+            if current_step and current_step % val_freq == 0:
                 # loss_, mAP, mean_acc, mean_precision, mean_recall, mean_f1, corrects, precision, recall, f1
                 tb_dict['val/loss'], tb_dict['val/mAP'], tb_dict['val/mean_acc'], tb_dict['val/mean_precision'], \
                 tb_dict['val/mean_recall'], tb_dict['val/mean_f1'], acc, precision, recall, f1 = validate(model, val_dataloader, iteration, args) ###
