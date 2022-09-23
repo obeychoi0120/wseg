@@ -847,10 +847,20 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
                 
                 ### Post-processing unlabeled CAM with saliency map
                 if args.use_ulb_saliency:
-                    ulb_cam1[:,:-1] *= F.interpolate(ulb_sal, size=(ulb_cam1.size(-2), ulb_cam1.size(-1)))
+                    ulb_sal_rsz = F.interpolate(ulb_sal, size=(ulb_cam1.size(-2), ulb_cam1.size(-1)))
+                    # Masking foreground
+                    # ulb_cam1[:,:-1] *= ulb_sal_rsz
                     
-                    # ulb_cam1[:,:-1] *= (F.interpolate(ulb_sal, size=(ulb_cam1.size(-2), ulb_cam1.size(-1))) + 0.1)
+                    # Masking foreground(soft)
+                    # ulb_cam1[:,:-1] *= (ulb_sal_rsz + 0.1)
                     # ulb_cam1[:,:-1] /= 1.1
+
+                    # Inverse Masking background
+                    ulb_cam1[:,-1:] *= 1. - ulb_sal_rsz
+
+                    # Inverse Masking background(soft)
+                    # ulb_cam1[:,-1:] *= 1. - ulb_sal_rsz + 0.1
+                    # ulb_cam1[:,-1:] /= 1.1
 
                 ### Apply strong transforms to pseudo-label(pixelwise matching with ulb_cam2) ###
                 if args.ulb_aug_type == 'strong':
