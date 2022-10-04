@@ -31,7 +31,7 @@ def get_arguments():
     parser.add_argument('--batch_size', default=8, type=int)
     parser.add_argument('--iter_size', default=2, type=int)
     parser.add_argument('--crop_size', default=448, type=int)
-    parser.add_argument('--resize_size', default=(448, 768))
+    parser.add_argument('--resize_size', default=[448, 768], nargs='+', type=int)
 
     ### semi-supervised learning ###
     parser.add_argument('--ssl', action='store_true')
