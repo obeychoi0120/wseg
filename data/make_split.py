@@ -3,6 +3,7 @@ import glob
 import argparse
 import random
 
+# USAGE: python make_split.py --train_list coco/train.txt --lb_ratio 0.03125 --out_dir coco/split/1_8/ --seed 0
 # Randomly Sample from train list
 if __name__=='__main__':
     
