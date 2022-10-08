@@ -22,6 +22,7 @@ start = time.time()
 
 def parse_args():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--dataset", default='voc12', choices=['voc12', 'coco'], type=str)
     parser.add_argument("--network", default="network.resnet38_cls", type=str)
     parser.add_argument("--weights", required=True, type=str)
     parser.add_argument("--n_gpus", type=int, default=1)
@@ -40,6 +41,11 @@ def parse_args():
     parser.add_argument("--pl_method", default='cls_hard', type=str)
 
     args = parser.parse_args()
+
+    if args.dataset == 'voc12':
+        args.num_sample = 21
+    elif args.dataset == 'coco':
+        args.num_sample = 81
 
     # model information
     if 'cls' in args.network:
@@ -117,17 +123,17 @@ def predict_cam(model, image, label, gpu, args):
 
             if args.is_unlabeled:
                 if args.pl_method == 'all': # remain all class predictions
-                    label = np.ones(20)
+                    label = np.ones(args.num_sample-1)
                 elif args.pl_method == 'cls_hard': # use only positive class predictions
                     pred = F.avg_pool2d(cam, kernel_size=(cam.size(-2), cam.size(-1)), padding=0)
                     label = (torch.sigmoid(pred) >= 0.5).float()
-                    label = label.view(label.size(0), -1).cpu().numpy()[:,:20]
+                    label = label.view(label.size(0), -1).cpu().numpy()[:,:args.num_sample-1]
                 else:
                     label = None
 
             if args.network_type == 'cls':
                 cam = F.interpolate(cam, original_image_size, mode='bilinear', align_corners=False)[0]
-                cam = cam.cpu().numpy() * label.reshape(20, 1, 1)
+                cam = cam.cpu().numpy() * label.reshape(args.num_sample-1, 1, 1)
 
                 if i % 2 == 1:
                     cam = np.flip(cam, axis=-1)
@@ -136,7 +142,7 @@ def predict_cam(model, image, label, gpu, args):
             elif args.network_type == 'seam':
                 cam = F.softmax(cam, dim=1)
                 cam = F.upsample(cam[:, 1:, :, :], original_image_size, mode='bilinear', align_corners=False)[0]
-                cam = cam.cpu().numpy() * label.reshape(20, 1, 1)
+                cam = cam.cpu().numpy() * label.reshape(args.num_sample-1, 1, 1)
                 if i % 2 == 1:
                     cam = np.flip(cam, axis=-1)
                 
@@ -149,7 +155,7 @@ def predict_cam(model, image, label, gpu, args):
                 cam_fg = cam[:-1]
                 cam_bg = cam[-1:]
 
-                cam_fg = cam_fg.cpu().numpy() * label.reshape(20, 1, 1)
+                cam_fg = cam_fg.cpu().numpy() * label.reshape(args.num_sample-1, 1, 1)
                 cam_bg = cam_bg.cpu().numpy()
 
                 if i % 2 == 1:
@@ -175,14 +181,14 @@ def _crf_with_alpha(image, cam_dict, alpha, t=10):
     return n_crf_al
 
 
-def infer_cam_mp(process_id, image_ids, label_list, cur_gpu):
+def infer_cam_mp(process_id, image_ids, label_list, cur_gpu, num_class=21):
     print('process {} starts...'.format(os.getpid()))
 
     print(process_id, cur_gpu)
     print('GPU:', cur_gpu)
     print('{} images per process'.format(len(image_ids)))
 
-    model = getattr(importlib.import_module(args.network), 'Net')()
+    model = getattr(importlib.import_module(args.network), 'Net')(args.num_sample)
     model = model.cuda(cur_gpu)
     model.load_state_dict(torch.load(args.weights))
     model.eval()
@@ -222,12 +228,12 @@ def infer_cam_mp(process_id, image_ids, label_list, cur_gpu):
         # norm_cam = (sum_cam-cam_min-1e-5) / (cam_max - cam_min + 1e-5)
 
         cam_dict = {}
-        for j in range(20):
+        for j in range(num_class-1):
             if label[j] > 1e-5:
                 cam_dict[j] = norm_cam[j]
 
         h, w = list(cam_dict.values())[0].shape
-        tensor = np.zeros((21, h, w), np.float32)
+        tensor = np.zeros((num_class, h, w), np.float32)
         for key in cam_dict.keys():
             tensor[key + 1] = cam_dict[key]
         tensor[0, :, :] = args.thr
@@ -252,7 +258,7 @@ def infer_cam_mp(process_id, image_ids, label_list, cur_gpu):
 
 def main_mp():
     image_ids = load_img_id_list(args.infer_list)
-    label_list = load_img_label_list_from_npy(image_ids)
+    label_list = load_img_label_list_from_npy(image_ids, args.dataset)
     n_total_images = len(image_ids)
     assert len(image_ids) == len(label_list)
 
@@ -299,7 +305,7 @@ def main_mp():
     processes = list()
     for idx, process_id in enumerate(range(n_total_processes)):
         proc = Process(target=infer_cam_mp,
-                       args=(process_id, sub_image_ids[idx], sub_label_list[idx], gpu_list[idx]))
+                       args=(process_id, sub_image_ids[idx], sub_label_list[idx], gpu_list[idx], args.num_sample))
         processes.append(proc)
         proc.start()
 

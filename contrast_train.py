@@ -31,7 +31,7 @@ def get_arguments():
 
     parser.add_argument('--batch_size', default=8, type=int)
     parser.add_argument('--crop_size', default=448, type=int)
-    parser.add_argument('--resize_size', default=(448, 768))
+    parser.add_argument('--resize_size', default=(448, 768), type=int, nargs='*')
 
     # iteration & optimizer
     parser.add_argument('--iter_size', default=2, type=int)
@@ -41,47 +41,50 @@ def get_arguments():
     parser.add_argument('--lr', default=0.01, type=float)
     parser.add_argument('--num_workers', default=8, type=int)
     parser.add_argument('--wt_dec', default=5e-4, type=float)
-    parser.add_argument('--loss_type', default='mse', type=str) #?
-    parser.add_argument('--eval', action='store_true') #?
 
     # network
-    parser.add_argument('--network', default='network.vgg16_cls', type=str)
+    parser.add_argument('--network', default='network.resnet38_cls', type=str)
     parser.add_argument('--weights', required=True, type=str, default='pretrained/ilsvrc-cls_rna-a1_cls1000_ep-0001.params')
+    
+    # hyper-parameters for EPS
+    parser.add_argument('--tau', default=0.5, type=float)
+    parser.add_argument('--alpha', default=0.5, type=float)
 
     ### semi-supervised learning ###
     parser.add_argument('--ssl', action='store_true')
     parser.add_argument('--ssl_type', nargs='+', default=[1], type=int) # 1: MT, 2: pixel-wise MT, 3: fixmatch
     parser.add_argument('--train_ulb_list', default='', type=str)
-    #parser.add_argument('--warmup_iter', type=int, default=2000)
     parser.add_argument('--mu', default=1.0, type=float) # ratio of ulb / lb data
-    parser.add_argument('--ema_m', default=0.999, type=float) # ratio of ulb / lb data
-    parser.add_argument('--mt_warmup', type=float, default=0.4) # mean teacher warmup
-    parser.add_argument('--mt_lambda', default=50.0, type=float) # ratio of ssl loss
-    parser.add_argument('--mt_p', default=0., type=float) # ratio of ssl loss
-    parser.add_argument('--ssl_lambda', default=1.0, type=float) # ratio of ssl loss
-    parser.add_argument('--cdc_lambda', default=1.0, type=float) # ratio of cdc loss
-    parser.add_argument('--cdc_T', default=0.5, type=float) # Temperature of cdc loss
-    parser.add_argument('--cdc_norm', action='store_true') # Normalize feature to calculate cdc loss
-    parser.add_argument('--cdc_inter', action='store_true') # Calculate Inter-image pixel
+
     parser.add_argument('--ulb_aug_type', default='strong', type=str) # None / weak / strong
     parser.add_argument('--n_strong_aug', default=3, type=int) # number of RandAug
     parser.add_argument('--use_cutmix', action='store_true') # Use CutMix
     parser.add_argument('--use_ulb_saliency', action='store_true') # Use Saliency map for unlabeled teacher
+
+    parser.add_argument('--ema_m', default=0.999, type=float) # ratio of ulb / lb data
+    parser.add_argument('--mt_warmup', type=float, default=0.4) # mean teacher warmup
+    parser.add_argument('--mt_lambda', default=50.0, type=float) # ratio of ssl loss
+    parser.add_argument('--mt_p', default=0., type=float) # ratio of ssl loss
+    
+    parser.add_argument('--ssl_lambda', default=1.0, type=float) # ratio of ssl loss
     parser.add_argument('--p_cutoff', default=0.95, type=float)
     parser.add_argument('--T', type=float, default=0.5)
     parser.add_argument('--soft_label', action='store_true') # hard label(Default) or soft label
 
-    # hyper-parameters for EPS
-    parser.add_argument('--tau', default=0.5, type=float)
-    parser.add_argument('--alpha', default=0.5, type=float)
-
+    parser.add_argument('--cdc_lambda', default=1.0, type=float) # ratio of cdc loss
+    parser.add_argument('--cdc_T', default=0.5, type=float) # Temperature of cdc loss
+    parser.add_argument('--cdc_norm', action='store_true') # Normalize feature to calculate cdc loss
+    parser.add_argument('--cdc_inter', action='store_true') # Calculate Inter-image pixel    
+    
     args = parser.parse_args()
 
+    # Dataset(Class Number)
     if args.dataset == 'voc12':
         args.num_sample = 21
     elif args.dataset == 'coco':
         args.num_sample = 81
 
+    # Network
     if 'cls' in args.network:
         args.network_type = 'cls'
     elif 'seam' in args.network:
@@ -127,17 +130,11 @@ if __name__ == '__main__':
 
     # set optimizer
     optimizer = get_optimizer(args, model, max_step)
-
-    # evaluate
-    if args.eval:
-        model.load_state_dict(torch.load(os.path.join(args.log_folder, 'checkpoint_contrast.pth')))
-        model = torch.nn.DataParallel(model).cuda()
-        validate(model, val_loader, 0, args)
-        exit()
     
     # train
     model = torch.nn.DataParallel(model).cuda()
     model.train()
+    
     if args.network_type == 'cls':
         train_cls(train_loader, val_loader, model, optimizer, max_step, args)
     elif args.network_type == 'seam':

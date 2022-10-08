@@ -147,7 +147,7 @@ def get_contrast_loss(cam1, cam2, f_proj1, f_proj2, label, gamma=0.05, bg_thres=
     A1_intra_view1 = torch.exp(torch.sum(f_proj1 * positives_intra1, dim=-1) / 0.1)
     neg_scores = torch.matmul(f_proj1, negitives_intra1.transpose(0, 1))  # (n*h*w, 21)
     with torch.no_grad():
-        random_indices = torch.tensor([random.sample(range(21), 10) for _ in range(n_f * h_f * w_f)]).long()
+        random_indices = torch.tensor([random.sample(range(c1), 10) for _ in range(n_f * h_f * w_f)]).long() ### range(21 or 81)
 
     with torch.no_grad():
         _, lower_indices = torch.topk(neg_scores, k=13, largest=True, dim=-1)
@@ -162,7 +162,7 @@ def get_contrast_loss(cam1, cam2, f_proj1, f_proj2, label, gamma=0.05, bg_thres=
     loss_intra_nce1 = torch.zeros(1).cuda()
     C = 0
     exists = np.unique(pseudo_label1.cpu().numpy()).tolist()
-    for i_ in range(21):  # for each class
+    for i_ in range(c1):  # for each class (21 or 81)
         if not i_ in exists:
             continue
         C += 1
@@ -204,7 +204,7 @@ def get_contrast_loss(cam1, cam2, f_proj1, f_proj2, label, gamma=0.05, bg_thres=
     neg_scores = torch.matmul(f_proj2, negitives_intra2.transpose(0, 1))  # (n*h*w, 21)
 
     with torch.no_grad():
-        random_indices = torch.tensor([random.sample(range(21), 10) for _ in range(n_f * h_f * w_f)]).long()
+        random_indices = torch.tensor([random.sample(range(c1), 10) for _ in range(n_f * h_f * w_f)]).long() ### range(21 or 81)
 
     with torch.no_grad():
         _, lower_indices = torch.topk(neg_scores, k=13, largest=True, dim=-1)
@@ -219,7 +219,7 @@ def get_contrast_loss(cam1, cam2, f_proj1, f_proj2, label, gamma=0.05, bg_thres=
     loss_intra_nce2 = torch.zeros(1).cuda()
     C = 0
     exists = np.unique(pseudo_label2.cpu().numpy()).tolist()
-    for i_ in range(21):
+    for i_ in range(c1): ### range(21 or 81)
         if not i_ in exists:
             continue
         C += 1
@@ -272,8 +272,8 @@ def get_er_loss(cam1, cam2, cam_rv1, cam_rv2, label):
     cam_rv2 = max_norm(cam_rv2) * label
     tensor_ecr1 = torch.abs(max_onehot(cam2.detach()) - cam_rv1)  # *eq_mask
     tensor_ecr2 = torch.abs(max_onehot(cam1.detach()) - cam_rv2)  # *eq_mask
-    loss_ecr1 = torch.mean(torch.topk(tensor_ecr1.view(ns, -1), k=int(21 * hs * ws * 0.2), dim=-1)[0])
-    loss_ecr2 = torch.mean(torch.topk(tensor_ecr2.view(ns, -1), k=int(21 * hs * ws * 0.2), dim=-1)[0])
+    loss_ecr1 = torch.mean(torch.topk(tensor_ecr1.view(ns, -1), k=int(cs * hs * ws * 0.2), dim=-1)[0]) ### cs == 21 or 81
+    loss_ecr2 = torch.mean(torch.topk(tensor_ecr2.view(ns, -1), k=int(cs * hs * ws * 0.2), dim=-1)[0]) ### cs == 21 or 81
     loss_ecr = loss_ecr1 + loss_ecr2
 
     return loss_er, loss_ecr
@@ -335,6 +335,87 @@ def train_cls(train_loader, val_dataloader, model, optimizer, max_step, args):
     torch.save(model.module.state_dict(), os.path.join(args.log_folder, 'checkpoint_cls.pth'))
 
 
+
+def train_seam(train_dataloader, val_dataloader, model, optimizer, max_step, args):
+    avg_meter = pyutils.AverageMeter('loss', 'loss_cls', 'loss_er', 'loss_ecr')
+    tb_writer = SummaryWriter(args.log_folder)
+    timer = pyutils.Timer("Session started: ")
+    loader_iter = iter(train_dataloader)
+    print(args)
+    ### validation logging
+    val_num = 10 # 10 times
+    val_freq = max_step // val_num
+
+    for iteration in range(args.max_iters):
+        for _ in range(args.iter_size):
+            try:
+                img_id, img, label = next(loader_iter)
+            except:
+                loader_iter = iter(train_dataloader)
+                img_id, img, label = next(loader_iter)
+
+            img = img.cuda(non_blocking=True)
+            label = label.cuda(non_blocking=True)
+
+            img2 = F.interpolate(img, size=(128, 128), mode='bilinear', align_corners=True)
+
+            pred1, cam1, pred_rv1, cam_rv1 = model(img)
+            pred2, cam2, pred_rv2, cam_rv2 = model(img2)
+
+            # Classification loss
+            loss_cls = F.multilabel_soft_margin_loss(pred1[:, :-1], label)
+            loss_cls2 = F.multilabel_soft_margin_loss(pred2[:, :-1], label)
+
+            bg_score = torch.ones((img.shape[0], 1)).cuda()
+            label_append_bg = torch.cat((label, bg_score), dim=1).unsqueeze(2).unsqueeze(3)  # (N, 21, 1, 1)
+            loss_cls_rv1 = adaptive_min_pooling_loss((cam_rv1 * label_append_bg)[:, :-1, :, :])
+            loss_cls_rv2 = adaptive_min_pooling_loss((cam_rv2 * label_append_bg)[:, :-1, :, :])
+
+            loss_er, loss_ecr = get_er_loss(cam1, cam2, cam_rv1, cam_rv2, label_append_bg)
+
+            # total loss
+            loss_cls = (loss_cls + loss_cls2) / 2. + (loss_cls_rv1 + loss_cls_rv2) / 2.
+            loss = loss_cls + loss_er + loss_ecr
+
+            avg_meter.add({'loss': loss.item(),
+                           'loss_cls': loss_cls.item(),
+                           'loss_er': loss_er.item(),
+                           'loss_ecr': loss_ecr.item()})
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            # tblog
+            tb_dict = {}
+            for k in avg_meter.get_keys():
+                tb_dict['train/' + k] = avg_meter.pop(k)
+            tb_dict['train/lr'] = optimizer.param_groups[0]['lr']
+            
+            if (optimizer.global_step-1) % 50 == 0:
+                timer.update_progress(optimizer.global_step / max_step)
+
+                print('Iter:%5d/%5d' % (iteration, args.max_iters),
+                      'Loss_Cls:%.4f' % (tb_dict['train/loss_cls']),
+                      'Loss_ER: %.4f' % (tb_dict['train/loss_er']),
+                      'Loss_ECR:%.4f' % (tb_dict['train/loss_ecr']),
+                      'imps:%.1f' % ((iteration+1) * args.batch_size / timer.get_stage_elapsed()),
+                      'Fin:%s' % (timer.str_est_finish()),
+                      'lr: %.4f' % (optimizer.param_groups[0]['lr']), flush=True)
+            
+            # Validate 10 times
+            current_step = optimizer.global_step-(max_step % val_freq)
+            if current_step and current_step % val_freq == 0 and val_dataloader is not None:
+                # loss_, mAP, mean_acc, mean_precision, mean_recall, mean_f1, corrects, precision, recall, f1
+                tb_dict['val/loss'], tb_dict['val/mAP'], tb_dict['val/mean_acc'], tb_dict['val/mean_precision'], \
+                tb_dict['val/mean_recall'], tb_dict['val/mean_f1'], acc, precision, recall, f1 = validate(model, val_dataloader, iteration, args) ###
+            # tblog update
+            for k, value in tb_dict.items():
+                tb_writer.add_scalar(k, value, iteration)
+            timer.reset_stage()
+    torch.save(model.module.state_dict(), os.path.join(args.log_folder, 'checkpoint_contrast.pth'))
+
+
 def train_eps(train_dataloader, val_dataloader, model, optimizer, max_step, args):
     avg_meter = pyutils.AverageMeter('loss', 'loss_cls', 'loss_sal')
     timer = pyutils.Timer("Session started: ")
@@ -359,7 +440,8 @@ def train_eps(train_dataloader, val_dataloader, model, optimizer, max_step, args
                                                               label,
                                                               args.tau,
                                                               args.alpha,
-                                                              intermediate=True)
+                                                              intermediate=True,
+                                                              num_class=args.num_sample)
             loss = loss_cls + loss_sal
 
             avg_meter.add({'loss': loss.item(),
@@ -412,15 +494,15 @@ def train_contrast(train_dataloader, val_dataloader, model, optimizer, max_step,
 
             # Classification loss 1
             loss_cls = F.multilabel_soft_margin_loss(pred1[:, :-1], label)
-            loss_sal, fg_map, bg_map, sal_pred = get_eps_loss(cam1, saliency, label, args.tau, args.alpha, intermediate=True)
-            loss_sal_rv, _, _, _ = get_eps_loss(cam_rv1, saliency, label, args.tau, args.alpha, intermediate=True)
+            loss_sal, fg_map, bg_map, sal_pred = get_eps_loss(cam1, saliency, label, args.tau, args.alpha, intermediate=True, num_class=args.num_sample)
+            loss_sal_rv, _, _, _ = get_eps_loss(cam_rv1, saliency, label, args.tau, args.alpha, intermediate=True, num_class=args.num_sample)
 
             # Classification loss 2
             loss_cls2 = F.multilabel_soft_margin_loss(pred2[:, :-1], label)
 
-            loss_sal2, fg_map2, bg_map2, sal_pred2 = get_eps_loss(cam2, saliency2, label, args.tau, args.alpha, intermediate=True)
+            loss_sal2, fg_map2, bg_map2, sal_pred2 = get_eps_loss(cam2, saliency2, label, args.tau, args.alpha, intermediate=True, num_class=args.num_sample)
 
-            loss_sal_rv2, _, _, _ = get_eps_loss(cam_rv2, saliency2, label, args.tau, args.alpha, intermediate=True)
+            loss_sal_rv2, _, _, _ = get_eps_loss(cam_rv2, saliency2, label, args.tau, args.alpha, intermediate=True, num_class=args.num_sample)
 
             bg_score = torch.ones((img.shape[0], 1)).cuda()
             label_append_bg = torch.cat((label, bg_score), dim=1).unsqueeze(2).unsqueeze(3)  # (N, 21, 1, 1)
@@ -469,7 +551,7 @@ def train_contrast(train_dataloader, val_dataloader, model, optimizer, max_step,
                       'lr: %.4f' % (optimizer.param_groups[0]['lr']), flush=True)
             
             # Validate 10 times
-            if (optimizer.global_step-1) % (max_step // 10) == 0:
+            if (optimizer.global_step-1) % (max_step // 10) == 0 and val_dataloader is not None:
                 # loss_, mAP, mean_acc, mean_precision, mean_recall, mean_f1, corrects, precision, recall, f1
                 tb_dict['val/loss'], tb_dict['val/mAP'], tb_dict['val/mean_acc'], tb_dict['val/mean_precision'], \
                 tb_dict['val/mean_recall'], tb_dict['val/mean_f1'], acc, precision, recall, f1 = validate(model, val_dataloader, iteration, args) ###
@@ -568,8 +650,8 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
                 #     # ulb_cam1[:,-1:] /= 1.1
 
                 #     # EPS Saliency
-                #     label_all = torch.ones_like(ulb_cam1[:,:20,:1,:1]).bool()
-                #     _, fg_map, bg_map, sal_pred = get_eps_loss(ulb_cam1, ulb_sal_rsz, label_all, args.tau, args.alpha, intermediate=True)
+                #     label_all = torch.ones_like(ulb_cam1[:,:args.num_sample-1,:1,:1]).bool()
+                #     _, fg_map, bg_map, sal_pred = get_eps_loss(ulb_cam1, ulb_sal_rsz, label_all, args.tau, args.alpha, intermediate=True, num_class=args.num_sample)
                 #     # ulb_cam1[:,:-1] *= sal_pred # (FG)
                 #     ulb_cam1[:,-1:] *= 1. - sal_pred # (BG)
 
@@ -608,15 +690,15 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
 
             # Classification loss 1
             loss_cls = F.multilabel_soft_margin_loss(pred1[:, :-1], label)
-            loss_sal, fg_map, bg_map, sal_pred = get_eps_loss(cam1, saliency, label, args.tau, args.alpha, intermediate=True)
-            loss_sal_rv, _, _, _ = get_eps_loss(cam_rv1, saliency, label, args.tau, args.alpha, intermediate=True)
+            loss_sal, fg_map, bg_map, sal_pred = get_eps_loss(cam1, saliency, label, args.tau, args.alpha, intermediate=True, num_class=args.num_sample)
+            loss_sal_rv, _, _, _ = get_eps_loss(cam_rv1, saliency, label, args.tau, args.alpha, intermediate=True, num_class=args.num_sample)
 
             # Classification loss 2
             loss_cls2 = F.multilabel_soft_margin_loss(pred2[:, :-1], label)
 
-            loss_sal2, fg_map2, bg_map2, sal_pred2 = get_eps_loss(cam2, saliency2, label, args.tau, args.alpha, intermediate=True)
+            loss_sal2, fg_map2, bg_map2, sal_pred2 = get_eps_loss(cam2, saliency2, label, args.tau, args.alpha, intermediate=True, num_class=args.num_sample)
 
-            loss_sal_rv2, _, _, _ = get_eps_loss(cam_rv2, saliency2, label, args.tau, args.alpha, intermediate=True)
+            loss_sal_rv2, _, _, _ = get_eps_loss(cam_rv2, saliency2, label, args.tau, args.alpha, intermediate=True, num_class=args.num_sample)
 
             bg_score = torch.ones((img.shape[0], 1)).cuda()
             label_append_bg = torch.cat((label, bg_score), dim=1).unsqueeze(2).unsqueeze(3)  # (N, 21, 1, 1)
@@ -636,8 +718,8 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
             
             ###########           Semi-supervsied Learning           ###########
             if args.use_ulb_saliency:
-                label_all = torch.ones_like(ulb_cam1[:,:20,:1,:1]).bool()
-                loss_ulb_sal, fg_map_ulb, bg_map_ulb, sal_pred_ulb = get_eps_loss(ulb_cam2, ulb_sal, label_all, args.tau, args.alpha, intermediate=True)
+                label_all = torch.ones_like(ulb_cam1[:,:args.num_sample-1,:1,:1]).bool()
+                loss_ulb_sal, fg_map_ulb, bg_map_ulb, sal_pred_ulb = get_eps_loss(ulb_cam2, ulb_sal, label_all, args.tau, args.alpha, intermediate=True, num_class=args.num_sample)
                 loss += loss_ulb_sal
                 
             #######                1. Logit MSE(L2) loss                 #######
@@ -747,7 +829,7 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
             
             # Validate K times
             current_step = optimizer.global_step-(max_step % val_freq)
-            if current_step and current_step % val_freq == 0:
+            if current_step and current_step % val_freq == 0 and val_dataloader is not None:
                 # loss_, mAP, mean_acc, mean_precision, mean_recall, mean_f1, corrects, precision, recall, f1
                 tb_dict['val/loss'], tb_dict['val/mAP'], tb_dict['val/mean_acc'], tb_dict['val/mean_precision'], \
                 tb_dict['val/mean_recall'], tb_dict['val/mean_f1'], acc, precision, recall, f1 = validate(model, val_dataloader, iteration, args) ###
@@ -831,13 +913,13 @@ def train_contrast_ssl_cam_consistency_reg(train_dataloader, train_ulb_dataloade
 
             # Classification loss 1
             loss_cls = F.multilabel_soft_margin_loss(pred1[:, :-1], label)
-            loss_sal, fg_map, bg_map, sal_pred = get_eps_loss(cam1, saliency, label, args.tau, args.alpha, intermediate=True)
-            loss_sal_rv, _, _, _ = get_eps_loss(cam_rv1, saliency, label, args.tau, args.alpha, intermediate=True)
+            loss_sal, fg_map, bg_map, sal_pred = get_eps_loss(cam1, saliency, label, args.tau, args.alpha, intermediate=True, num_class=args.num_sample)
+            loss_sal_rv, _, _, _ = get_eps_loss(cam_rv1, saliency, label, args.tau, args.alpha, intermediate=True, num_class=args.num_sample)
 
             # Classification loss 2
             loss_cls2 = F.multilabel_soft_margin_loss(pred2[:, :-1], label)
-            loss_sal2, fg_map2, bg_map2, sal_pred2 = get_eps_loss(cam2, saliency2, label, args.tau, args.alpha, intermediate=True)
-            loss_sal_rv2, _, _, _ = get_eps_loss(cam_rv2, saliency2, label, args.tau, args.alpha, intermediate=True)
+            loss_sal2, fg_map2, bg_map2, sal_pred2 = get_eps_loss(cam2, saliency2, label, args.tau, args.alpha, intermediate=True, num_class=args.num_sample)
+            loss_sal_rv2, _, _, _ = get_eps_loss(cam_rv2, saliency2, label, args.tau, args.alpha, intermediate=True, num_class=args.num_sample)
 
             # Classification_rv loss
             bg_score = torch.ones((img.shape[0], 1)).cuda()
@@ -893,7 +975,7 @@ def train_contrast_ssl_cam_consistency_reg(train_dataloader, train_ulb_dataloade
                       'lr: %.4f' % (optimizer.param_groups[0]['lr']), flush=True)
             
             # Validate 10 times
-            if (optimizer.global_step-1) % (max_step // 10) == 0:
+            if (optimizer.global_step-1) % (max_step // 10) == 0 and val_dataloader is not None:
                 validate(model, val_dataloader, iteration, args)
             timer.reset_stage()
     torch.save(model.module.state_dict(), os.path.join(args.log_folder, 'checkpoint_contrast.pth'))
@@ -942,13 +1024,13 @@ def train_contrast_ssl_lowres(train_dataloader, train_ulb_dataloader, val_datalo
 
             # Classification loss 1
             loss_cls = F.multilabel_soft_margin_loss(pred1[:, :-1], label)
-            loss_sal, fg_map, bg_map, sal_pred = get_eps_loss(cam1, saliency, label, args.tau, args.alpha, intermediate=True)
-            loss_sal_rv, _, _, _ = get_eps_loss(cam_rv1, saliency, label, args.tau, args.alpha, intermediate=True)
+            loss_sal, fg_map, bg_map, sal_pred = get_eps_loss(cam1, saliency, label, args.tau, args.alpha, intermediate=True, num_class=args.num_sample)
+            loss_sal_rv, _, _, _ = get_eps_loss(cam_rv1, saliency, label, args.tau, args.alpha, intermediate=True, num_class=args.num_sample)
 
             # Classification loss 2
             loss_cls2 = F.multilabel_soft_margin_loss(pred2[:, :-1], label)
-            loss_sal2, fg_map2, bg_map2, sal_pred2 = get_eps_loss(cam2, saliency2, label, args.tau, args.alpha, intermediate=True)
-            loss_sal_rv2, _, _, _ = get_eps_loss(cam_rv2, saliency2, label, args.tau, args.alpha, intermediate=True)
+            loss_sal2, fg_map2, bg_map2, sal_pred2 = get_eps_loss(cam2, saliency2, label, args.tau, args.alpha, intermediate=True, num_class=args.num_sample)
+            loss_sal_rv2, _, _, _ = get_eps_loss(cam_rv2, saliency2, label, args.tau, args.alpha, intermediate=True, num_class=args.num_sample)
 
             # Classification_rv loss
             bg_score = torch.ones((img.shape[0], 1)).cuda()
@@ -1007,7 +1089,7 @@ def train_contrast_ssl_lowres(train_dataloader, train_ulb_dataloader, val_datalo
                       'lr: %.4f' % (optimizer.param_groups[0]['lr']), flush=True)
             
             # Validate 10 times
-            if (optimizer.global_step-1) % (max_step // 10) == 0:
+            if (optimizer.global_step-1) % (max_step // 10) == 0 and val_dataloader is not None:
                 validate(model, val_dataloader, iteration, args)
             timer.reset_stage()
     torch.save(model.module.state_dict(), os.path.join(args.log_folder, 'checkpoint_contrast.pth'))

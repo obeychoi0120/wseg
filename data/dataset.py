@@ -17,8 +17,8 @@ def load_img_id_list(img_id_file):
     return open(img_id_file).read().splitlines()
 
 
-def load_img_label_list_from_npy(img_name_list):
-    cls_labels_dict = np.load('data/voc12/cls_labels.npy', allow_pickle=True).item()
+def load_img_label_list_from_npy(img_name_list, dataset):
+    cls_labels_dict = np.load(f'data/{dataset}/cls_labels.npy', allow_pickle=True).item()
     return [cls_labels_dict[img_name] for img_name in img_name_list]
 
 
@@ -30,7 +30,8 @@ class ImageDataset(Dataset):
     """
     Base image dataset. This returns 'img_id' and 'image'
     """
-    def __init__(self, img_id_list_file, img_root, transform=None):
+    def __init__(self, dataset, img_id_list_file, img_root, transform=None):
+        self.dataset = dataset
         self.img_id_list = load_img_id_list(img_id_list_file)
         self.img_root = img_root
         self.transform = transform
@@ -52,9 +53,9 @@ class ClassificationDataset(ImageDataset):
     """
     Classification Dataset (base)
     """
-    def __init__(self, img_id_list_file, img_root, transform=None):
-        super().__init__(img_id_list_file, img_root, transform)
-        self.label_list = load_img_label_list_from_npy(self.img_id_list)
+    def __init__(self, dataset, img_id_list_file, img_root, transform=None):
+        super().__init__(dataset, img_id_list_file, img_root, transform)
+        self.label_list = load_img_label_list_from_npy(self.img_id_list, dataset)
 
     def __getitem__(self, idx):
         name, img = super().__getitem__(idx)
@@ -88,9 +89,9 @@ class ClassificationDatasetWithSaliency(ImageDataset):
     """
     Classification Dataset with saliency
     """
-    def __init__(self, img_id_list_file, img_root, saliency_root=None,
+    def __init__(self, dataset, img_id_list_file, img_root, saliency_root=None,
                  crop_size=224, resize_size=(256, 512), aug_type=None, n_strong_aug=3):
-        super().__init__(img_id_list_file, img_root, transform=None)
+        super().__init__(dataset, img_id_list_file, img_root, transform=None)
         self.saliency_root = saliency_root
         self.crop_size = crop_size
         self.resize_size = resize_size
@@ -100,7 +101,7 @@ class ClassificationDatasetWithSaliency(ImageDataset):
         self.color = transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.1)
         self.normalize = Normalize()
 
-        self.label_list = load_img_label_list_from_npy(self.img_id_list)
+        self.label_list = load_img_label_list_from_npy(self.img_id_list, dataset)
 
         if self.aug_type == 'strong': ###
             blur_kernel_size = int(random.random() * 4.95)

@@ -6,10 +6,10 @@ import network.resnet38d
 
 
 class Net(network.resnet38d.Net):
-    def __init__(self, num_classes=21):
+    def __init__(self, num_class=21):
         super().__init__()
 
-        self.fc8 = nn.Conv2d(4096, num_classes, 1, bias=False)
+        self.fc8 = nn.Conv2d(4096, num_class, 1, bias=False)
 
         self.proj_fc = nn.Conv2d(4096, 128, 1, bias=False)
 

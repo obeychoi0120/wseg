@@ -2,7 +2,7 @@ import torch
 from torch.nn import functional as F
 
 
-def get_eps_loss(cam, saliency, label, tau, alpha, intermediate=True):
+def get_eps_loss(cam, saliency, label, tau, alpha, intermediate=True, num_class=21):
     """
     Get EPS loss for pseudo-pixel supervision from saliency map.
     Args:
@@ -20,21 +20,21 @@ def get_eps_loss(cam, saliency, label, tau, alpha, intermediate=True):
     b, c, h, w = cam.size()
     saliency = F.interpolate(saliency, size=(h, w))
 
-    label_map = label.view(b, 20, 1, 1).expand(size=(b, 20, h, w)).bool()
+    label_map = label.view(b, num_class-1, 1, 1).expand(size=(b, num_class-1, h, w)).bool()
 
     # Map selection
-    label_map_fg = torch.zeros(size=(b, 21, h, w)).bool().cuda()
-    label_map_bg = torch.zeros(size=(b, 21, h, w)).bool().cuda()
+    label_map_fg = torch.zeros(size=(b, num_class, h, w)).bool().cuda()
+    label_map_bg = torch.zeros(size=(b, num_class, h, w)).bool().cuda()
 
-    label_map_bg[:, 20] = True
+    label_map_bg[:, num_class-1] = True
     label_map_fg[:, :-1] = label_map.clone()
 
     sal_pred = F.softmax(cam, dim=1)
 
-    iou_saliency = (torch.round(sal_pred[:, :-1].detach()) * torch.round(saliency)).view(b, 20, -1).sum(-1) / \
-                   (torch.round(sal_pred[:, :-1].detach()) + 1e-04).view(b, 20, -1).sum(-1)
+    iou_saliency = (torch.round(sal_pred[:, :-1].detach()) * torch.round(saliency)).view(b, num_class-1, -1).sum(-1) / \
+                   (torch.round(sal_pred[:, :-1].detach()) + 1e-04).view(b, num_class-1, -1).sum(-1)
 
-    valid_channel = (iou_saliency > tau).view(b, 20, 1, 1).expand(size=(b, 20, h, w))
+    valid_channel = (iou_saliency > tau).view(b, num_class-1, 1, 1).expand(size=(b, num_class-1, h, w))
 
     label_fg_valid = label_map & valid_channel
 

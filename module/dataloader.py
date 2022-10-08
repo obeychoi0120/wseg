@@ -19,72 +19,83 @@ def get_dataloader(args):
 
     if args.network_type == 'cls' or args.network_type == 'seam':
         train_dataset = CLS_DATASET(
-            img_id_list_file=args.train_list,
-            img_root=args.data_root,
-            transform=transforms.Compose([
-                imutils.RandomResizeLong(args.resize_size[0], args.resize_size[1]),
-                transforms.RandomHorizontalFlip(),
-                transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.1),
-                np.asarray,
-                Normalize(),
-                imutils.RandomCrop(args.crop_size),
-                imutils.HWC_to_CHW,
-                torch.from_numpy
+            dataset             = args.dataset,
+            img_id_list_file    = args.train_list,
+            img_root            = args.data_root,
+            transform           = transforms.Compose([
+                                    imutils.RandomResizeLong(args.resize_size[0], args.resize_size[1]),
+                                    transforms.RandomHorizontalFlip(),
+                                    transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.1),
+                                    np.asarray,
+                                    Normalize(),
+                                    imutils.RandomCrop(args.crop_size),
+                                    imutils.HWC_to_CHW,
+                                    torch.from_numpy
             ]))
     elif args.network_type == 'eps':
         train_dataset = CLS_SAL_DATASET(
-            img_id_list_file=args.train_list,
-            img_root=args.data_root,
-            saliency_root=args.saliency_root,
-            crop_size=args.crop_size,
-            resize_size=args.resize_size
+            dataset             = args.dataset,
+            img_id_list_file    = args.train_list,
+            img_root            = args.data_root,
+            saliency_root       = args.saliency_root,
+            crop_size           = args.crop_size,
+            resize_size         = args.resize_size
         )
     elif args.network_type == 'eps_seam' or args.network_type == 'eps_seam_with_PCM':
         train_dataset = CLS_SAL_DATASET(
-            img_id_list_file=args.train_list,
-            img_root=args.data_root,
-            saliency_root=args.saliency_root,
-            crop_size=args.crop_size,
-            resize_size=args.resize_size
+            dataset             = args.dataset,
+            img_id_list_file    = args.train_list,
+            img_root            = args.data_root,
+            saliency_root       = args.saliency_root,
+            crop_size           = args.crop_size,
+            resize_size         = args.resize_size
         )
     elif args.network_type == 'contrast':
         train_dataset = CLS_SAL_DATASET(
-            img_id_list_file=args.train_list,
-            img_root=args.data_root,
-            saliency_root=args.saliency_root,
-            crop_size=args.crop_size,
-            resize_size=args.resize_size
+            dataset             = args.dataset,
+            img_id_list_file    = args.train_list,
+            img_root            = args.data_root,
+            saliency_root       = args.saliency_root,
+            crop_size           = args.crop_size,
+            resize_size         = args.resize_size
         )
     else:
         raise Exception("No appropriate train type")
 
-    val_dataset = CLS_DATASET(
-        img_id_list_file=args.val_list,
-        img_root=args.data_root,
-        transform=transforms.Compose([
-                        transforms.Resize(args.crop_size),
-                        np.asarray,
-                        Normalize(),
-                        imutils.CenterCrop(args.crop_size),
-                        imutils.HWC_to_CHW,
-                        torch.from_numpy
-        ]))
-    
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True,
                               num_workers=args.num_workers, pin_memory=True, drop_last=True)
-    val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False,
-                            num_workers=args.num_workers, pin_memory=True, drop_last=True)
+    
+    try:
+        val_dataset = CLS_DATASET(
+            dataset             = args.dataset,
+            img_id_list_file    = args.val_list,
+            img_root            = args.data_root,
+            transform           = transforms.Compose([
+                                    transforms.Resize(args.crop_size),
+                                    np.asarray,
+                                    Normalize(),
+                                    imutils.CenterCrop(args.crop_size),
+                                    imutils.HWC_to_CHW,
+                                    torch.from_numpy
+            ]))
+        
+        val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False,
+                                num_workers=args.num_workers, pin_memory=True, drop_last=True)
+    except: # coco (no val labels in cls_labels.npy)
+        print('No validation label list found. Train without validation dataloader.')
+        val_loader = None
 
     ### Unlabeled dataset ###
     if args.ssl:
         train_ulb_dataset = CLS_SAL_DATASET(
-            img_id_list_file=args.train_ulb_list,
-            img_root=args.data_root,
-            saliency_root=args.saliency_root,
-            crop_size=args.crop_size,
-            resize_size=args.resize_size,
-            aug_type=args.ulb_aug_type,
-            n_strong_aug=args.n_strong_aug
+            dataset             = args.dataset,
+            img_id_list_file    = args.train_ulb_list,
+            img_root            = args.data_root,
+            saliency_root       = args.saliency_root,
+            crop_size           = args.crop_size,
+            resize_size         = args.resize_size,
+            aug_type            = args.ulb_aug_type,
+            n_strong_aug        = args.n_strong_aug
         )
         train_ulb_loader = DataLoader(train_ulb_dataset, batch_size=int(args.batch_size*args.mu), shuffle=True,
                                       num_workers=args.num_workers, pin_memory=True, drop_last=True)

@@ -6,11 +6,11 @@ import network.resnet38d
 
 
 class Net(network.resnet38d.Net):
-    def __init__(self, num_classes=21):
+    def __init__(self, num_class=21):
         super().__init__()
         self.dropout7 = torch.nn.Dropout2d(0.5)
 
-        self.fc8 = nn.Conv2d(4096, num_classes, 1, bias=False)
+        self.fc8 = nn.Conv2d(4096, num_class, 1, bias=False)
 
         self.f8_3 = torch.nn.Conv2d(512, 64, 1, bias=False)
         self.f8_4 = torch.nn.Conv2d(1024, 128, 1, bias=False)
