@@ -61,6 +61,7 @@ class ClassificationDataset(ImageDataset):
         label = torch.from_numpy(self.label_list[idx])
         return name, img, label
 
+
 class ClassificationDatasetOnMemory(ClassificationDataset):
     """
     Classification Dataset on Memory (base)
@@ -113,9 +114,9 @@ class ClassificationDatasetWithSaliency(ImageDataset):
         img = PIL.Image.open(os.path.join(self.img_root, img_id + '.jpg')).convert("RGB")
         saliency = PIL.Image.open(get_saliency_path(img_id, self.saliency_root)).convert("RGB")
 
-        return self._getitem(idx, img_id, img, saliency)
+        return self._getitem_with_aug(idx, img_id, img, saliency)
 
-    def _getitem(self, idx, img_id, img, saliency):
+    def _getitem_with_aug(self, idx, img_id, img, saliency):
         label = torch.from_numpy(self.label_list[idx])
         img1, saliency1, weak_tr = self.transform_with_mask(img, saliency, get_transform=True)
         img1, saliency1 = self.totensor(img1, saliency1)
@@ -218,4 +219,4 @@ class ClassificationDatasetWithSaliencyOnMemory(ClassificationDatasetWithSalienc
         img = self.img_list[idx]
         saliency = self.saliency_list[idx]
 
-        return self._getitem(idx, img_id, img, saliency)
+        return self._getitem_with_aug(idx, img_id, img, saliency)

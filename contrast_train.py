@@ -9,7 +9,7 @@ from util import pyutils
 from module.dataloader import get_dataloader
 from module.model import get_model
 from module.optimizer import get_optimizer
-from module.train import train_cls, train_eps, train_contrast, train_contrast_ssl
+from module.train import train_cls, train_seam, train_eps, train_contrast, train_contrast_ssl
 from module.validate import validate
 
 cudnn.enabled = True
@@ -22,6 +22,7 @@ def get_arguments():
     parser.add_argument('--session', default='eps', type=str)
 
     # data
+    parser.add_argument("--dataset", default='voc12', choices=['voc12', 'coco'], type=str)
     parser.add_argument('--data_root', required=True, type=str)
     parser.add_argument('--saliency_root', type=str)
     parser.add_argument('--train_list', default='data/voc12/train_aug_id.txt', type=str)
@@ -29,9 +30,23 @@ def get_arguments():
     parser.add_argument('--data_on_mem', action='store_true') ### Load dataset on RAM(need 20GB additional RAM)
 
     parser.add_argument('--batch_size', default=8, type=int)
-    parser.add_argument('--iter_size', default=2, type=int)
     parser.add_argument('--crop_size', default=448, type=int)
-    parser.add_argument('--resize_size', default=[448, 768], nargs='+', type=int)
+    parser.add_argument('--resize_size', default=(448, 768))
+
+    # iteration & optimizer
+    parser.add_argument('--iter_size', default=2, type=int)
+    parser.add_argument('--max_iters', default=10000, type=int)
+    parser.add_argument('--max_epoches', default=None, type=int) # default=15
+
+    parser.add_argument('--lr', default=0.01, type=float)
+    parser.add_argument('--num_workers', default=8, type=int)
+    parser.add_argument('--wt_dec', default=5e-4, type=float)
+    parser.add_argument('--loss_type', default='mse', type=str) #?
+    parser.add_argument('--eval', action='store_true') #?
+
+    # network
+    parser.add_argument('--network', default='network.vgg16_cls', type=str)
+    parser.add_argument('--weights', required=True, type=str, default='pretrained/ilsvrc-cls_rna-a1_cls1000_ep-0001.params')
 
     ### semi-supervised learning ###
     parser.add_argument('--ssl', action='store_true')
@@ -55,23 +70,6 @@ def get_arguments():
     parser.add_argument('--p_cutoff', default=0.95, type=float)
     parser.add_argument('--T', type=float, default=0.5)
     parser.add_argument('--soft_label', action='store_true') # hard label(Default) or soft label
-    
-    # network
-    parser.add_argument('--network', default='network.vgg16_cls', type=str)
-    parser.add_argument('--weights', required=True, type=str, default='pretrained/ilsvrc-cls_rna-a1_cls1000_ep-0001.params')
-
-    # optimizer
-    parser.add_argument('--max_epoches', default=15, type=int)
-    parser.add_argument('--lr', default=0.01, type=float)
-    parser.add_argument('--num_workers', default=8, type=int)
-    parser.add_argument('--wt_dec', default=5e-4, type=float)
-    parser.add_argument('--loss_type', default='mse', type=str)
-    parser.add_argument('--eval', action='store_true') #?
-    parser.add_argument('--num_sample', default=21, type=int)
-    parser.add_argument('--max_iters', default=10000, type=int)
-    parser.add_argument('--start_iters', default=0, type=int) ### resume iteration
-    parser.add_argument('--resume_weights', default=None, type=str) ### resume model path
-    
 
     # hyper-parameters for EPS
     parser.add_argument('--tau', default=0.5, type=float)
@@ -79,9 +77,15 @@ def get_arguments():
 
     args = parser.parse_args()
 
+    if args.dataset == 'voc12':
+        args.num_sample = 21
+    elif args.dataset == 'coco':
+        args.num_sample = 81
 
     if 'cls' in args.network:
         args.network_type = 'cls'
+    elif 'seam' in args.network:
+        args.network_type = 'seam'
     elif 'eps' in args.network:
         args.network_type = 'eps'
     elif 'contrast' in args.network:
@@ -112,18 +116,17 @@ if __name__ == '__main__':
     else:
         train_loader, val_loader = get_dataloader(args)
 
-    max_step = (len(open(args.train_list).read().splitlines()) // args.batch_size) * args.max_epoches
+    # max step
+    num_data = len(open(args.train_list).read().splitlines())
+    if args.max_epoches is None:
+        args.max_epoches = int(args.max_iters * args.iter_size // (num_data // args.batch_size))
+    max_step = (num_data // args.batch_size) * args.max_epoches
 
     # load network and its pre-trained model
     model = get_model(args)
-    # load when resume training
-    if args.resume_weights is not None:
-        model.load_state_dict(torch.load(args.resume_weights))
-        args.lr *= 1 - (args.start_iters / args.max_iters)
 
     # set optimizer
     optimizer = get_optimizer(args, model, max_step)
-    ### Resume Optimizer (TBD)
 
     # evaluate
     if args.eval:
@@ -137,6 +140,8 @@ if __name__ == '__main__':
     model.train()
     if args.network_type == 'cls':
         train_cls(train_loader, val_loader, model, optimizer, max_step, args)
+    elif args.network_type == 'seam':
+        train_seam(train_loader, val_loader, model, optimizer, max_step, args)
     elif args.network_type == 'eps':
         train_eps(train_loader, val_loader, model, optimizer, max_step, args)
     elif args.network_type == 'contrast':

@@ -1,8 +1,9 @@
 train_log/*
 tblog/*
-pretrained/*
 evallog.txt
 __pycache__
-.ipynb_checkpoint
+.ipynb_checkpoints
+
+pretrained/*
 *.pth
 *.params
