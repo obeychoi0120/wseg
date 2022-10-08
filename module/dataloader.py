@@ -17,7 +17,7 @@ def get_dataloader(args):
         CLS_DATASET = ClassificationDatasetOnMemory
         CLS_SAL_DATASET = ClassificationDatasetWithSaliencyOnMemory
 
-    if args.network_type == 'cls':
+    if args.network_type == 'cls' or args.network_type == 'seam':
         train_dataset = CLS_DATASET(
             img_id_list_file=args.train_list,
             img_root=args.data_root,

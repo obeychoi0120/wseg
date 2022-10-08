@@ -8,6 +8,7 @@ def get_model(args):
 
     if args.weights[-7:] == '.params':
         assert args.network in ["network.resnet38_cls",
+                                "network.resnet38_seam",
                                 "network.resnet38_eps",
                                 "network.resnet38_eps_seam",
                                 "network.resnet38_contrast",
