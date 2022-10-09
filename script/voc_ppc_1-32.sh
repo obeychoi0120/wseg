@@ -35,7 +35,7 @@ CUDA_VISIBLE_DEVICES=${GPU} python3 contrast_train.py \
 
 
 # 2. inference CAM (train/train_aug/val)
-TRAINED_WEIGHT=train_log/${SESSION}/checkpoint_cls.pth
+TRAINED_WEIGHT=train_log/${SESSION}/checkpoint_contrast.pth
 DATA=train_aug
 # Labeled
 CUDA_VISIBLE_DEVICES=${GPU} python3 contrast_infer.py \

@@ -5,11 +5,11 @@ SALIENCY_ROOT=SALImages
 GPU=0,1,2,3
 
 # Default setting
-SESSION="ppc_1-8"
+SESSION="ppc_1-8(1)"
 DATASET="voc12"
 BACKBONE="resnet38_contrast"
 SPLIT="1_8"
-SPLIT_NUM="0"
+SPLIT_NUM="1"
 # Paths
 IMG_ROOT=${DATASET_ROOT}/JPEGImages
 SAL_ROOT=${DATASET_ROOT}/${SALIENCY_ROOT}
@@ -18,24 +18,24 @@ LB_DATA_LIST=data/${DATASET}/split/${SPLIT}/lb_train_${SPLIT_NUM}.txt ##########
 ULB_DATA_LIST=data/${DATASET}/split/${SPLIT}/ulb_train_${SPLIT_NUM}.txt #########
 
 
-# train classification network with EPS
-CUDA_VISIBLE_DEVICES=${GPU} python3 contrast_train.py \
-    --train_list        ${LB_DATA_LIST} \
-    --train_ulb_list    ${ULB_DATA_LIST} \
-    --session           ${SESSION} \
-    --network           network.${BACKBONE} \
-    --data_root         ${IMG_ROOT} \
-    --saliency_root     ${SAL_ROOT} \
-    --weights           ${BASE_WEIGHT} \
-    --crop_size         448 \
-    --tau               0.4 \
-    --max_iters         10000 \
-    --iter_size         2 \
-    --batch_size        8
+# # train classification network with EPS
+# CUDA_VISIBLE_DEVICES=${GPU} python3 contrast_train.py \
+#     --train_list        ${LB_DATA_LIST} \
+#     --train_ulb_list    ${ULB_DATA_LIST} \
+#     --session           ${SESSION} \
+#     --network           network.${BACKBONE} \
+#     --data_root         ${IMG_ROOT} \
+#     --saliency_root     ${SAL_ROOT} \
+#     --weights           ${BASE_WEIGHT} \
+#     --crop_size         448 \
+#     --tau               0.4 \
+#     --max_iters         10000 \
+#     --iter_size         2 \
+#     --batch_size        8
 
 
 # 2. inference CAM (train/train_aug/val)
-TRAINED_WEIGHT=train_log/${SESSION}/checkpoint_cls.pth
+TRAINED_WEIGHT=train_log/${SESSION}/checkpoint_contrast.pth
 DATA=train_aug
 # Labeled
 CUDA_VISIBLE_DEVICES=${GPU} python3 contrast_infer.py \

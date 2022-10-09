@@ -349,11 +349,17 @@ def train_cls(train_loader, val_dataloader, model, optimizer, max_step, args):
                     # loss_, mAP, mean_acc, mean_precision, mean_recall, mean_f1, corrects, precision, recall, f1
                     tb_dict['val/loss'], tb_dict['val/mAP'], tb_dict['val/mean_acc'], tb_dict['val/mean_precision'], \
                     tb_dict['val/mean_recall'], tb_dict['val/mean_f1'], acc, precision, recall, f1 = validate(model, val_dataloader, iteration, args) ###
+                
+                # Save intermediate model
+                model_path = os.path.join(args.log_folder, f'checkpoint_{iteration}.pth')
+                torch.save(model.module.state_dict(), model_path)
+                print(f'Model {model_path} Saved.')
+
             # tblog update
             for k, value in tb_dict.items():
                 tb_writer.add_scalar(k, value, iteration)
             timer.reset_stage()
-    torch.save(model.module.state_dict(), os.path.join(args.log_folder, 'checkpoint_cls.pth'))
+    torch.save(model.module.state_dict(), os.path.join(args.log_folder, 'checkpoint.pth'))
 
 
 def train_seam(train_dataloader, val_dataloader, model, optimizer, max_step, args):
@@ -430,11 +436,17 @@ def train_seam(train_dataloader, val_dataloader, model, optimizer, max_step, arg
                     # loss_, mAP, mean_acc, mean_precision, mean_recall, mean_f1, corrects, precision, recall, f1
                     tb_dict['val/loss'], tb_dict['val/mAP'], tb_dict['val/mean_acc'], tb_dict['val/mean_precision'], \
                     tb_dict['val/mean_recall'], tb_dict['val/mean_f1'], acc, precision, recall, f1 = validate(model, val_dataloader, iteration, args) ###
+                
+                # Save intermediate model
+                model_path = os.path.join(args.log_folder, f'checkpoint_{iteration}.pth')
+                torch.save(model.module.state_dict(), model_path)
+                print(f'Model {model_path} Saved.')
+
             # tblog update
             for k, value in tb_dict.items():
                 tb_writer.add_scalar(k, value, iteration)
             timer.reset_stage()
-    torch.save(model.module.state_dict(), os.path.join(args.log_folder, 'checkpoint_contrast.pth'))
+    torch.save(model.module.state_dict(), os.path.join(args.log_folder, 'checkpoint.pth'))
 
 
 def train_eps(train_dataloader, val_dataloader, model, optimizer, max_step, args):
@@ -498,7 +510,7 @@ def train_eps(train_dataloader, val_dataloader, model, optimizer, max_step, args
                     tb_dict['val/mean_recall'], tb_dict['val/mean_f1'], acc, precision, recall, f1 = validate(model, val_dataloader, iteration, args) ###
 
                 # Save intermediate model
-                model_path = os.path.join(args.log_folder, f'checkpoint_contrast_{iteration}.pth')
+                model_path = os.path.join(args.log_folder, f'checkpoint_cls_{iteration}.pth')
                 torch.save(model.module.state_dict(), model_path)
                 print(f'Model {model_path} Saved.')
 
