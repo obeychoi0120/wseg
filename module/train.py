@@ -300,8 +300,14 @@ def max_onehot(x):
 
 def train_cls(train_loader, val_dataloader, model, optimizer, max_step, args):
     avg_meter = pyutils.AverageMeter('loss')
+    tb_writer = SummaryWriter(args.log_folder)
     timer = pyutils.Timer("Session started: ")
     loader_iter = iter(train_loader)
+    
+    ### validation logging
+    val_num = 10 # 10 times
+    val_freq = max_step // val_num
+
     for iteration in range(args.max_iters):
         for _ in range(args.iter_size):
             try:
@@ -321,6 +327,12 @@ def train_cls(train_loader, val_dataloader, model, optimizer, max_step, args):
             loss.backward()
             optimizer.step()
 
+            # tblog
+            tb_dict = {}
+            for k in avg_meter.get_keys():
+                tb_dict['train/' + k] = avg_meter.pop(k)
+            tb_dict['train/lr'] = optimizer.param_groups[0]['lr']
+
             if (optimizer.global_step-1) % 50 == 0:
                 timer.update_progress(optimizer.global_step / max_step)
 
@@ -330,10 +342,18 @@ def train_cls(train_loader, val_dataloader, model, optimizer, max_step, args):
                       'Fin:%s' % (timer.str_est_finish()),
                       'lr: %.4f' % (optimizer.param_groups[0]['lr']), flush=True)
 
-            # validate(model, val_data_loader, epoch=ep + 1)
+            # Validate 10 times
+            current_step = optimizer.global_step-(max_step % val_freq)
+            if current_step and current_step % val_freq == 0:
+                if val_dataloader is not None:
+                    # loss_, mAP, mean_acc, mean_precision, mean_recall, mean_f1, corrects, precision, recall, f1
+                    tb_dict['val/loss'], tb_dict['val/mAP'], tb_dict['val/mean_acc'], tb_dict['val/mean_precision'], \
+                    tb_dict['val/mean_recall'], tb_dict['val/mean_f1'], acc, precision, recall, f1 = validate(model, val_dataloader, iteration, args) ###
+            # tblog update
+            for k, value in tb_dict.items():
+                tb_writer.add_scalar(k, value, iteration)
             timer.reset_stage()
     torch.save(model.module.state_dict(), os.path.join(args.log_folder, 'checkpoint_cls.pth'))
-
 
 
 def train_seam(train_dataloader, val_dataloader, model, optimizer, max_step, args):
@@ -405,10 +425,11 @@ def train_seam(train_dataloader, val_dataloader, model, optimizer, max_step, arg
             
             # Validate 10 times
             current_step = optimizer.global_step-(max_step % val_freq)
-            if current_step and current_step % val_freq == 0 and val_dataloader is not None:
-                # loss_, mAP, mean_acc, mean_precision, mean_recall, mean_f1, corrects, precision, recall, f1
-                tb_dict['val/loss'], tb_dict['val/mAP'], tb_dict['val/mean_acc'], tb_dict['val/mean_precision'], \
-                tb_dict['val/mean_recall'], tb_dict['val/mean_f1'], acc, precision, recall, f1 = validate(model, val_dataloader, iteration, args) ###
+            if current_step and current_step % val_freq == 0:
+                if val_dataloader is not None:
+                    # loss_, mAP, mean_acc, mean_precision, mean_recall, mean_f1, corrects, precision, recall, f1
+                    tb_dict['val/loss'], tb_dict['val/mAP'], tb_dict['val/mean_acc'], tb_dict['val/mean_precision'], \
+                    tb_dict['val/mean_recall'], tb_dict['val/mean_f1'], acc, precision, recall, f1 = validate(model, val_dataloader, iteration, args) ###
             # tblog update
             for k, value in tb_dict.items():
                 tb_writer.add_scalar(k, value, iteration)
@@ -418,6 +439,7 @@ def train_seam(train_dataloader, val_dataloader, model, optimizer, max_step, arg
 
 def train_eps(train_dataloader, val_dataloader, model, optimizer, max_step, args):
     avg_meter = pyutils.AverageMeter('loss', 'loss_cls', 'loss_sal')
+    tb_writer = SummaryWriter(args.log_folder)
     timer = pyutils.Timer("Session started: ")
     loader_iter = iter(train_dataloader)
     for iteration in range(args.max_iters):
@@ -452,6 +474,12 @@ def train_eps(train_dataloader, val_dataloader, model, optimizer, max_step, args
             loss.backward()
             optimizer.step()
 
+            # tblog
+            tb_dict = {}
+            for k in avg_meter.get_keys():
+                tb_dict['train/' + k] = avg_meter.pop(k)
+            tb_dict['train/lr'] = optimizer.param_groups[0]['lr']
+
             if (optimizer.global_step-1) % 50 == 0:
                 timer.update_progress(optimizer.global_step / max_step)
 
@@ -462,7 +490,21 @@ def train_eps(train_dataloader, val_dataloader, model, optimizer, max_step, args
                       'Fin:%s' % (timer.str_est_finish()),
                       'lr: %.4f' % (optimizer.param_groups[0]['lr']), flush=True)
 
-            # validate(model, val_data_loader, epoch=ep + 1)
+            # Validate 10 times
+            if (optimizer.global_step-1) % (max_step // 10) == 0:
+                if val_dataloader is not None:
+                    # loss_, mAP, mean_acc, mean_precision, mean_recall, mean_f1, corrects, precision, recall, f1
+                    tb_dict['val/loss'], tb_dict['val/mAP'], tb_dict['val/mean_acc'], tb_dict['val/mean_precision'], \
+                    tb_dict['val/mean_recall'], tb_dict['val/mean_f1'], acc, precision, recall, f1 = validate(model, val_dataloader, iteration, args) ###
+
+                # Save intermediate model
+                model_path = os.path.join(args.log_folder, f'checkpoint_contrast_{iteration}.pth')
+                torch.save(model.module.state_dict(), model_path)
+                print(f'Model {model_path} Saved.')
+
+            # tblog update
+            for k, value in tb_dict.items():
+                tb_writer.add_scalar(k, value, iteration)
             timer.reset_stage()
     torch.save(model.module.state_dict(), os.path.join(args.log_folder, 'checkpoint_cls.pth'))
 
@@ -551,10 +593,17 @@ def train_contrast(train_dataloader, val_dataloader, model, optimizer, max_step,
                       'lr: %.4f' % (optimizer.param_groups[0]['lr']), flush=True)
             
             # Validate 10 times
-            if (optimizer.global_step-1) % (max_step // 10) == 0 and val_dataloader is not None:
-                # loss_, mAP, mean_acc, mean_precision, mean_recall, mean_f1, corrects, precision, recall, f1
-                tb_dict['val/loss'], tb_dict['val/mAP'], tb_dict['val/mean_acc'], tb_dict['val/mean_precision'], \
-                tb_dict['val/mean_recall'], tb_dict['val/mean_f1'], acc, precision, recall, f1 = validate(model, val_dataloader, iteration, args) ###
+            if (optimizer.global_step-1) % (max_step // 10) == 0:
+                if val_dataloader is not None:
+                    # loss_, mAP, mean_acc, mean_precision, mean_recall, mean_f1, corrects, precision, recall, f1
+                    tb_dict['val/loss'], tb_dict['val/mAP'], tb_dict['val/mean_acc'], tb_dict['val/mean_precision'], \
+                    tb_dict['val/mean_recall'], tb_dict['val/mean_f1'], acc, precision, recall, f1 = validate(model, val_dataloader, iteration, args) ###
+
+                # Save intermediate model
+                model_path = os.path.join(args.log_folder, f'checkpoint_contrast_{iteration}.pth')
+                torch.save(model.module.state_dict(), model_path)
+                print(f'Model {model_path} Saved.')
+
             # tblog update
             for k, value in tb_dict.items():
                 tb_writer.add_scalar(k, value, iteration)
@@ -829,17 +878,19 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
             
             # Validate K times
             current_step = optimizer.global_step-(max_step % val_freq)
-            if current_step and current_step % val_freq == 0 and val_dataloader is not None:
-                # loss_, mAP, mean_acc, mean_precision, mean_recall, mean_f1, corrects, precision, recall, f1
-                tb_dict['val/loss'], tb_dict['val/mAP'], tb_dict['val/mean_acc'], tb_dict['val/mean_precision'], \
-                tb_dict['val/mean_recall'], tb_dict['val/mean_f1'], acc, precision, recall, f1 = validate(model, val_dataloader, iteration, args) ###
-                # EMA model
-                ema.apply_shadow() ###
-                tb_dict['val_ema/loss'], tb_dict['val_ema/mAP'], tb_dict['val_ema/mean_acc'], tb_dict['val_ema/mean_precision'], \
-                tb_dict['val_ema/mean_recall'], tb_dict['val_ema/mean_f1'], ema_acc, ema_precision, ema_recall, ema_f1 = validate(model, val_dataloader, iteration, args) ###
-                ema.restore() ###
+            if current_step and current_step % val_freq == 0:
+                # Validation
+                if val_dataloader is not None:
+                    # loss_, mAP, mean_acc, mean_precision, mean_recall, mean_f1, corrects, precision, recall, f1
+                    tb_dict['val/loss'], tb_dict['val/mAP'], tb_dict['val/mean_acc'], tb_dict['val/mean_precision'], \
+                    tb_dict['val/mean_recall'], tb_dict['val/mean_f1'], acc, precision, recall, f1 = validate(model, val_dataloader, iteration, args) ###
+                    # EMA model
+                    ema.apply_shadow() ###
+                    tb_dict['val_ema/loss'], tb_dict['val_ema/mAP'], tb_dict['val_ema/mean_acc'], tb_dict['val_ema/mean_precision'], \
+                    tb_dict['val_ema/mean_recall'], tb_dict['val_ema/mean_f1'], ema_acc, ema_precision, ema_recall, ema_f1 = validate(model, val_dataloader, iteration, args) ###
+                    ema.restore() ###
 
-                # Save each model
+                # Save intermediate model
                 model_path = os.path.join(args.log_folder, f'checkpoint_contrast_{iteration}.pth')
                 torch.save(model.module.state_dict(), model_path)
                 print(f'Model {model_path} Saved.')
