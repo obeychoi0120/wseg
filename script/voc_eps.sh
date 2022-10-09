@@ -23,7 +23,7 @@ CUDA_VISIBLE_DEVICES=${GPU} python3 contrast_train.py \
   --crop_size 448 \
   --tau 0.4 \
   --max_iters 10000 \
-  --iter_size 2 \
+  --iter_size 1 \
   --batch_size 8
 
 
