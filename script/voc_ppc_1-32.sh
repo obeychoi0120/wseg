@@ -5,10 +5,10 @@ SALIENCY_ROOT=SALImages
 GPU=0,1,2,3
 
 # Default setting
-SESSION="eps_1-4"
+SESSION="ppc_1-32"
 DATASET="voc12"
-BACKBONE="resnet38_eps"
-SPLIT="1_4"
+BACKBONE="resnet38_contrast"
+SPLIT="1_32"
 SPLIT_NUM="0"
 # Paths
 IMG_ROOT=${DATASET_ROOT}/JPEGImages
@@ -27,46 +27,46 @@ CUDA_VISIBLE_DEVICES=${GPU} python3 contrast_train.py \
     --data_root         ${IMG_ROOT} \
     --saliency_root     ${SAL_ROOT} \
     --weights           ${BASE_WEIGHT} \
-    --resize_size       256 512 \
     --crop_size         448 \
     --tau               0.4 \
     --max_iters         10000 \
-    --iter_size         1 \
+    --iter_size         2 \
     --batch_size        8
 
 
 # 2. inference CAM (train/train_aug/val)
 TRAINED_WEIGHT=train_log/${SESSION}/checkpoint_cls.pth
 DATA=train_aug
+# Labeled
 CUDA_VISIBLE_DEVICES=${GPU} python3 contrast_infer.py \
-    --infer_list ${LB_DATA_LIST} \
-    --img_root ${IMG_ROOT} \
-    --network network.${BACKBONE} \
-    --weights ${TRAINED_WEIGHT} \
-    --thr 0.20 \
-    --n_gpus 4 \
-    --n_processes_per_gpu 1 1 1 1 \
-    --cam_png train_log/${SESSION}/result/cam_png \
-    --cam_npy train_log/${SESSION}/result/cam_npy \
-    --crf train_log/${SESSION}/result/crf_png\
-    --crf_t 5 \
-    --crf_alpha 8
-# unlabeled
+    --infer_list            ${LB_DATA_LIST} \
+    --img_root              ${IMG_ROOT} \
+    --network               network.${BACKBONE} \
+    --weights               ${TRAINED_WEIGHT} \
+    --thr                   0.22 \
+    --n_gpus                4 \
+    --n_processes_per_gpu   1 1 1 1 \
+    --cam_png               train_log/${SESSION}/result/cam_png \
+    --cam_npy               train_log/${SESSION}/result/cam_npy \
+    --crf                   train_log/${SESSION}/result/crf_png \
+    --crf_t                 5 \
+    --crf_alpha             8
+# Unlabeled
 CUDA_VISIBLE_DEVICES=${GPU} python3 contrast_infer.py \
-    --infer_list ${ULB_DATA_LIST} \
-    --img_root ${IMG_ROOT} \
-    --network network.${BACKBONE} \
-    --weights ${TRAINED_WEIGHT} \
-    --thr 0.22 \
-    --n_gpus 4 \
-    --n_processes_per_gpu 1 1 1 1 \
-    --cam_png train_log/${SESSION}/result/cam_png \
-    --cam_npy train_log/${SESSION}/result/cam_npy \
-    --is_unlabeled \
-    --pl_method all \
-    --crf train_log/${SESSION}/result/crf_png \
-    --crf_t 5 \
-    --crf_alpha 8 \
+    --infer_list            ${ULB_DATA_LIST} \
+    --img_root              ${IMG_ROOT} \
+    --network               network.${BACKBONE} \
+    --weights               ${TRAINED_WEIGHT} \
+    --thr                   0.22 \
+    --n_gpus                4 \
+    --n_processes_per_gpu   1 1 1 1 \
+    --cam_png               train_log/${SESSION}/result/cam_png \
+    --cam_npy               train_log/${SESSION}/result/cam_npy \
+    --is_unlabeled          \
+    --pl_method             all \
+    --crf                   train_log/${SESSION}/result/crf_png\
+    --crf_t                 5 \
+    --crf_alpha             8 \
 
 
 # 3. evaluate CAM

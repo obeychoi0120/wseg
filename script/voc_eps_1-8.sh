@@ -5,10 +5,10 @@ SALIENCY_ROOT=SALImages
 GPU=0,1,2,3
 
 # Default setting
-SESSION="eps_1-4"
+SESSION="eps_1-8(0)"
 DATASET="voc12"
 BACKBONE="resnet38_eps"
-SPLIT="1_4"
+SPLIT="1_8"
 SPLIT_NUM="0"
 # Paths
 IMG_ROOT=${DATASET_ROOT}/JPEGImages
