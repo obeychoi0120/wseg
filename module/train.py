@@ -337,7 +337,7 @@ def train_cls(train_loader, val_dataloader, model, optimizer, max_step, args):
                 timer.update_progress(optimizer.global_step / max_step)
 
                 print('Iter:%5d/%5d' % (iteration, args.max_iters),
-                      'Loss:%.4f' % (avg_meter.pop('loss')),
+                      'Loss:%.4f' % (tb_dict['train/loss']),
                       'imps:%.1f' % ((iteration+1) * args.batch_size / timer.get_stage_elapsed()),
                       'Fin:%s' % (timer.str_est_finish()),
                       'lr: %.4f' % (optimizer.param_groups[0]['lr']), flush=True)
@@ -496,8 +496,8 @@ def train_eps(train_dataloader, val_dataloader, model, optimizer, max_step, args
                 timer.update_progress(optimizer.global_step / max_step)
 
                 print('Iter:%5d/%5d' % (iteration, args.max_iters),
-                      'Loss_Cls:%.4f' % (avg_meter.pop('loss_cls')),
-                      'Loss_Sal:%.4f' % (avg_meter.pop('loss_sal')),
+                      'Loss_Cls:%.4f' % (tb_dict['train/cls']),
+                      'Loss_Sal:%.4f' % (tb_dict['train/sal']),
                       'imps:%.1f' % ((iteration+1) * args.batch_size / timer.get_stage_elapsed()),
                       'Fin:%s' % (timer.str_est_finish()),
                       'lr: %.4f' % (optimizer.param_groups[0]['lr']), flush=True)
