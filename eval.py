@@ -5,9 +5,22 @@ from PIL import Image
 import multiprocessing
 import argparse
 
-categories = ['background', 'aeroplane', 'bicycle', 'bird', 'boat', 'bottle', 'bus', 'car', 'cat', 'chair', 'cow',
-              'diningtable', 'dog', 'horse', 'motorbike', 'person', 'pottedplant', 'sheep', 'sofa', 'train',
-              'tvmonitor']
+def get_categories(num_sample=None):
+    # VOC
+    if num_sample == 21:
+        return ['background', 'aeroplane', 'bicycle', 'bird', 'boat', 'bottle', 'bus', 'car', 'cat', 'chair', 'cow',
+                'diningtable', 'dog', 'horse', 'motorbike', 'person', 'pottedplant', 'sheep', 'sofa', 'train', 'tvmonitor']
+    # COCO
+    elif num_sample == 81:
+        return ['background', 'person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck',
+                'boat', 'traffic light', 'fire hydrant', 'stop sign', 'parking meter', 'bench', 'bird', 'cat', 'dog',
+                'horse', 'sheep', 'cow', 'elephant', 'bear', 'zebra', 'giraffe', 'backpack', 'umbrella',
+                'handbag', 'tie', 'suitcase', 'frisbee', 'skis', 'snowboard', 'sports ball', 'kite', 'baseball bat',
+                'baseball glove', 'skateboard', 'surfboard', 'tennis racket', 'bottle', 'wine glass', 'cup', 'fork', 'knife',
+                'spoon', 'bowl', 'banana', 'apple', 'sandwich', 'orange', 'broccoli', 'carrot', 'hot dog',
+                'pizza', 'donut', 'cake', 'chair', 'couch', 'potted plant', 'bed', 'dining table', 'toilet',
+                'tv', 'laptop', 'mouse', 'remote', 'keyboard', 'cell phone', 'microwave', 'oven', 'toaster',
+                'sink', 'refrigerator', 'book', 'clock', 'vase', 'scissors', 'teddy bear', 'hair drier', 'toothbrush']
 
 
 def do_python_eval(predict_folder, gt_folder, name_list, num_cls=21, input_type='png', threshold=1.0, printlog=False):
@@ -18,39 +31,44 @@ def do_python_eval(predict_folder, gt_folder, name_list, num_cls=21, input_type=
         TP.append(multiprocessing.Value('i', 0, lock=True))
         P.append(multiprocessing.Value('i', 0, lock=True))
         T.append(multiprocessing.Value('i', 0, lock=True))
+    
+    categories = get_categories(num_cls)
 
     def compare(start, step, TP, P, T, input_type, threshold):
         for idx in range(start, len(name_list), step):
             name = name_list[idx]
-            if input_type == 'png':
-                predict_file = os.path.join(predict_folder, '%s.png' % name)
-                predict = np.array(Image.open(predict_file))  # cv2.imread(predict_file)
-            elif input_type == 'npy':
-                predict_file = os.path.join(predict_folder, '%s.npy' % name)
-                predict_dict = np.load(predict_file, allow_pickle=True).item()
-                h, w = list(predict_dict.values())[0].shape
-                tensor = np.zeros((21, h, w), np.float32)
+            try:
+                if input_type == 'png':
+                    predict_file = os.path.join(predict_folder, '%s.png' % name)
+                    predict = np.array(Image.open(predict_file))  # cv2.imread(predict_file)
+                elif input_type == 'npy':
+                    predict_file = os.path.join(predict_folder, '%s.npy' % name)
+                    predict_dict = np.load(predict_file, allow_pickle=True).item()
+                    h, w = list(predict_dict.values())[0].shape
+                    tensor = np.zeros((num_cls, h, w), np.float32)
 
-                for key in predict_dict.keys():
-                    tensor[key+1] = predict_dict[key] ### replace key+1 to key when crf input ###
-                tensor[0, :, :] = threshold ### discard(comment) when crf input ###
-                predict = np.argmax(tensor, axis=0).astype(np.uint8)
+                    for key in predict_dict.keys():
+                        tensor[key+1] = predict_dict[key] ### replace key+1 to key when crf input ###
+                    tensor[0, :, :] = threshold ### discard(comment) when crf input ###
+                    predict = np.argmax(tensor, axis=0).astype(np.uint8)
 
-            gt_file = os.path.join(gt_folder, '%s.png' % name)
-            gt = np.array(Image.open(gt_file))
-            cal = gt < 255
-            mask = (predict == gt) * cal
+                gt_file = os.path.join(gt_folder, '%s.png' % name)
+                gt = np.array(Image.open(gt_file))
+                cal = gt < 255
+                mask = (predict == gt) * cal
 
-            for i in range(num_cls):
-                P[i].acquire()
-                P[i].value += np.sum((predict == i) * cal)
-                P[i].release()
-                T[i].acquire()
-                T[i].value += np.sum((gt == i) * cal)
-                T[i].release()
-                TP[i].acquire()
-                TP[i].value += np.sum((gt == i) * mask)
-                TP[i].release()
+                for i in range(num_cls):
+                    P[i].acquire()
+                    P[i].value += np.sum((predict == i) * cal)
+                    P[i].release()
+                    T[i].acquire()
+                    T[i].value += np.sum((gt == i) * cal)
+                    T[i].release()
+                    TP[i].acquire()
+                    TP[i].value += np.sum((gt == i) * mask)
+                    TP[i].release()
+            except Exception as e:
+                print(e)
 
     p_list = []
     for i in range(8):
@@ -122,6 +140,7 @@ def writelog(filepath, metric, comment):
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
+    parser.add_argument("--dataset", default='voc12', choices=['voc12', 'coco'], type=str)
     parser.add_argument("--list", default='./VOC2012/ImageSets/Segmentation/train.txt', type=str)
     parser.add_argument("--predict_dir", default='./out_rw', type=str)
     parser.add_argument("--gt_dir", default='./VOC2012/SegmentationClass', type=str)
@@ -133,12 +152,17 @@ if __name__ == '__main__':
     parser.add_argument('--max_th', default=60, type=int)
     args = parser.parse_args()
 
+    if args.dataset == 'voc12':
+        args.num_samples = 21
+    elif args.dataset == 'coco':
+        args.num_samples = 81
+
     if args.type == 'npy':
         assert args.t is not None or args.curve
     df = pd.read_csv(args.list, names=['filename'])
     name_list = df['filename'].values
     if not args.curve:
-        loglist = do_python_eval(args.predict_dir, args.gt_dir, name_list, 21, args.type, args.t, printlog=True)
+        loglist = do_python_eval(args.predict_dir, args.gt_dir, name_list, args.num_samples, args.type, args.t, printlog=True)
         writelog(args.logfile, loglist, args.comment)
     else:
         l = []
@@ -146,7 +170,7 @@ if __name__ == '__main__':
         r = []
         for i in range(args.max_th):
             t = i / 100.0
-            loglist = do_python_eval(args.predict_dir, args.gt_dir, name_list, 21, args.type, t)
+            loglist = do_python_eval(args.predict_dir, args.gt_dir, name_list, args.num_samples, args.type, t)
             l.append(loglist['mIoU'])
             p.append(loglist['Precision'])
             r.append(loglist['Recall'])
