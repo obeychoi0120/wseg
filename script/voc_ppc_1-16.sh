@@ -5,7 +5,7 @@ SALIENCY_ROOT=SALImages
 GPU=0,1,2,3
 
 # Default setting
-SESSION="ppc_1-16"
+SESSION="ppc_1-16(0)"
 DATASET="voc12"
 BACKBONE="resnet38_contrast"
 SPLIT="1_16"
@@ -35,7 +35,7 @@ CUDA_VISIBLE_DEVICES=${GPU} python3 contrast_train.py \
 
 
 # 2. inference CAM (train/train_aug/val)
-TRAINED_WEIGHT=train_log/${SESSION}/checkpoint_cls.pth
+TRAINED_WEIGHT=train_log/${SESSION}/checkpoint.pth
 DATA=train_aug
 # Labeled
 CUDA_VISIBLE_DEVICES=${GPU} python3 contrast_infer.py \
@@ -77,7 +77,7 @@ CUDA_VISIBLE_DEVICES=${GPU} python3 eval.py \
     --predict_dir train_log/${SESSION}/result/cam_npy/ \
     --gt_dir ${GT_ROOT} \
     --comment $SESSION \
-    --logfile train_log/${SESSION}/result/lb_train.txt \
+    --logfile train_log/${SESSION}/result/train.log \
     --max_th 30 \
     --type npy \
     --curve
@@ -87,7 +87,7 @@ CUDA_VISIBLE_DEVICES=${GPU} python3 eval.py \
 #     --predict_dir train_log/${SESSION}/result/cam_npy/ \
 #     --gt_dir ${GT_ROOT} \
 #     --comment $SESSION \
-#     --logfile train_log/${SESSION}/result/lb_train.txt \
+#     --logfile train_log/${SESSION}/result/lb_train.log \
 #     --max_th 30 \
 #     --type npy \
 #     --curve
@@ -97,7 +97,7 @@ CUDA_VISIBLE_DEVICES=${GPU} python3 eval.py \
 #     --predict_dir train_log/${SESSION}/result/cam_npy/ \
 #     --gt_dir ${GT_ROOT} \
 #     --comment $SESSION \
-#     --logfile train_log/${SESSION}/result/ulb_train.txt \
+#     --logfile train_log/${SESSION}/result/ulb_train.log \
 #     --max_th 25 \
 #     --type npy \
 #     --curve

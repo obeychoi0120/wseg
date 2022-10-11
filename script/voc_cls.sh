@@ -25,7 +25,7 @@ CUDA_VISIBLE_DEVICES=${GPU} python3 train.py \
 
 # 2. inference CAM
 DATA=train # train / train_aug
-TRAINED_WEIGHT=train_log/${SESSION}/checkpoint_cls.pth
+TRAINED_WEIGHT=train_log/${SESSION}/checkpoint.pth
 
 CUDA_VISIBLE_DEVICES=${GPU} python3 infer.py \
     --infer_list data/voc12/${DATA}_id.txt \

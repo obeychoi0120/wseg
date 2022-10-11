@@ -510,7 +510,7 @@ def train_eps(train_dataloader, val_dataloader, model, optimizer, max_step, args
                     tb_dict['val/mean_recall'], tb_dict['val/mean_f1'], acc, precision, recall, f1 = validate(model, val_dataloader, iteration, args) ###
 
                 # Save intermediate model
-                model_path = os.path.join(args.log_folder, f'checkpoint_cls_{iteration}.pth')
+                model_path = os.path.join(args.log_folder, f'checkpoint_{iteration}.pth')
                 torch.save(model.module.state_dict(), model_path)
                 print(f'Model {model_path} Saved.')
 
@@ -518,7 +518,7 @@ def train_eps(train_dataloader, val_dataloader, model, optimizer, max_step, args
             for k, value in tb_dict.items():
                 tb_writer.add_scalar(k, value, iteration)
             timer.reset_stage()
-    torch.save(model.module.state_dict(), os.path.join(args.log_folder, 'checkpoint_cls.pth'))
+    torch.save(model.module.state_dict(), os.path.join(args.log_folder, 'checkpoint.pth'))
 
 
 def train_contrast(train_dataloader, val_dataloader, model, optimizer, max_step, args):
@@ -612,7 +612,7 @@ def train_contrast(train_dataloader, val_dataloader, model, optimizer, max_step,
                     tb_dict['val/mean_recall'], tb_dict['val/mean_f1'], acc, precision, recall, f1 = validate(model, val_dataloader, iteration, args) ###
 
                 # Save intermediate model
-                model_path = os.path.join(args.log_folder, f'checkpoint_contrast_{iteration}.pth')
+                model_path = os.path.join(args.log_folder, f'checkpoint_{iteration}.pth')
                 torch.save(model.module.state_dict(), model_path)
                 print(f'Model {model_path} Saved.')
 
@@ -620,7 +620,7 @@ def train_contrast(train_dataloader, val_dataloader, model, optimizer, max_step,
             for k, value in tb_dict.items():
                 tb_writer.add_scalar(k, value, iteration)
             timer.reset_stage()
-    torch.save(model.module.state_dict(), os.path.join(args.log_folder, 'checkpoint_contrast.pth'))
+    torch.save(model.module.state_dict(), os.path.join(args.log_folder, 'checkpoint.pth'))
 
 
 ### contrast + semi-supervised learning ###
@@ -903,7 +903,7 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
                     ema.restore() ###
 
                 # Save intermediate model
-                model_path = os.path.join(args.log_folder, f'checkpoint_contrast_{iteration}.pth')
+                model_path = os.path.join(args.log_folder, f'checkpoint_{iteration}.pth')
                 torch.save(model.module.state_dict(), model_path)
                 print(f'Model {model_path} Saved.')
             
@@ -912,7 +912,7 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
                 tb_writer.add_scalar(k, value, iteration)
 
             timer.reset_stage()
-    torch.save(model.module.state_dict(), os.path.join(args.log_folder, 'checkpoint_contrast.pth'))
+    torch.save(model.module.state_dict(), os.path.join(args.log_folder, 'checkpoint.pth'))
 
 
 # T(f(x)) <=> f(T(x)) (CAM-wise paring)
@@ -1041,7 +1041,7 @@ def train_contrast_ssl_cam_consistency_reg(train_dataloader, train_ulb_dataloade
             if (optimizer.global_step-1) % (max_step // 10) == 0 and val_dataloader is not None:
                 validate(model, val_dataloader, iteration, args)
             timer.reset_stage()
-    torch.save(model.module.state_dict(), os.path.join(args.log_folder, 'checkpoint_contrast.pth'))
+    torch.save(model.module.state_dict(), os.path.join(args.log_folder, 'checkpoint.pth'))
 
 
 # Low resolution CAM as Pseudo-label
@@ -1155,4 +1155,4 @@ def train_contrast_ssl_lowres(train_dataloader, train_ulb_dataloader, val_datalo
             if (optimizer.global_step-1) % (max_step // 10) == 0 and val_dataloader is not None:
                 validate(model, val_dataloader, iteration, args)
             timer.reset_stage()
-    torch.save(model.module.state_dict(), os.path.join(args.log_folder, 'checkpoint_contrast.pth'))
+    torch.save(model.module.state_dict(), os.path.join(args.log_folder, 'checkpoint.pth'))
