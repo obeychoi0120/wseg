@@ -52,12 +52,12 @@ def get_arguments():
 
     ### semi-supervised learning ###
     parser.add_argument('--ssl', action='store_true')
-    parser.add_argument('--ssl_type', nargs='+', default=[1], type=int) # 1: MT, 2: pixel-wise MT, 3: fixmatch
+    parser.add_argument('--ssl_type', nargs='+', default=[3], type=int) # 1: MT, 2: pixel-wise MT, 3: fixmatch
     parser.add_argument('--train_ulb_list', default='', type=str)
     parser.add_argument('--mu', default=1.0, type=float) # ratio of ulb / lb data
 
     parser.add_argument('--ulb_aug_type', default='strong', type=str) # None / weak / strong
-    parser.add_argument('--n_strong_aug', default=3, type=int) # number of RandAug
+    parser.add_argument('--n_strong_aug', default=5, type=int) # number of RandAug
     parser.add_argument('--use_cutmix', action='store_true') # Use CutMix
     parser.add_argument('--use_ulb_saliency', action='store_true') # Use Saliency map for unlabeled teacher
 
