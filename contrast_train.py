@@ -15,6 +15,7 @@ from module.validate import validate
 cudnn.enabled = True
 torch.backends.cudnn.benchmark = False
 
+dataset_list = ['voc12', 'coco']
 
 def get_arguments():
     parser = argparse.ArgumentParser()
@@ -22,7 +23,7 @@ def get_arguments():
     parser.add_argument('--session', default='eps', type=str)
 
     # data
-    parser.add_argument("--dataset", default='voc12', choices=['voc12', 'coco'], type=str)
+    parser.add_argument("--dataset", default='voc12', choices=dataset_list, type=str)
     parser.add_argument('--data_root', required=True, type=str)
     parser.add_argument('--saliency_root', type=str)
     parser.add_argument('--train_list', default='data/voc12/train_aug_id.txt', type=str)
@@ -53,6 +54,9 @@ def get_arguments():
     ### semi-supervised learning ###
     parser.add_argument('--ssl', action='store_true')
     parser.add_argument('--ssl_type', nargs='+', default=[3], type=int) # 1: MT, 2: pixel-wise MT, 3: fixmatch
+    parser.add_argument("--ulb_dataset", default=None, choices=dataset_list, type=str)
+    parser.add_argument('--ulb_data_root', default=None, type=str)
+    parser.add_argument('--ulb_saliency_root', default=None, type=str) #?
     parser.add_argument('--train_ulb_list', default='', type=str)
     parser.add_argument('--mu', default=1.0, type=float) # ratio of ulb / lb data
 
@@ -83,6 +87,15 @@ def get_arguments():
         args.num_sample = 21
     elif args.dataset == 'coco':
         args.num_sample = 81
+    
+    # Unlabeled Dataset
+    if args.ssl:
+        if args.ulb_dataset is None:
+            args.ulb_dataset = args.dataset
+        if args.ulb_data_root is None:
+            args.ulb_data_root = args.data_root
+        if args.ulb_saliency_root is None:
+            args.ulb_saliency_root = args.saliency_root
 
     # Network
     if 'cls' in args.network:

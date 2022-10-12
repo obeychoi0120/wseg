@@ -88,10 +88,10 @@ def get_dataloader(args):
     ### Unlabeled dataset ###
     if args.ssl:
         train_ulb_dataset = CLS_SAL_DATASET(
-            dataset             = args.dataset,
+            dataset             = args.ulb_dataset,
             img_id_list_file    = args.train_ulb_list,
-            img_root            = args.data_root,
-            saliency_root       = args.saliency_root,
+            img_root            = args.ulb_data_root,
+            saliency_root       = args.ulb_saliency_root,
             crop_size           = args.crop_size,
             resize_size         = args.resize_size,
             aug_type            = args.ulb_aug_type,
