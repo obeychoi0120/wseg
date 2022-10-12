@@ -9,7 +9,7 @@ from util import pyutils
 from module.dataloader import get_dataloader
 from module.model import get_model
 from module.optimizer import get_optimizer
-from module.train import train_cls, train_seam, train_eps, train_contrast, train_contrast_ssl
+from module.train import train_cls, train_seam, train_eps, train_contrast, train_seam_ssl, train_eps_ssl, train_contrast_ssl
 from module.validate import validate
 
 cudnn.enabled = True
@@ -151,9 +151,15 @@ if __name__ == '__main__':
     if args.network_type == 'cls':
         train_cls(train_loader, val_loader, model, optimizer, max_step, args)
     elif args.network_type == 'seam':
-        train_seam(train_loader, val_loader, model, optimizer, max_step, args)
+        if args.ssl:
+            train_seam_ssl(train_loader, train_ulb_loader, val_loader, model, optimizer, max_step, args)
+        else:
+            train_seam(train_loader, val_loader, model, optimizer, max_step, args)
     elif args.network_type == 'eps':
-        train_eps(train_loader, val_loader, model, optimizer, max_step, args)
+        if args.ssl:
+            train_eps_ssl(train_loader, train_ulb_loader, val_loader, model, optimizer, max_step, args) ###
+        else:
+            train_eps(train_loader, val_loader, model, optimizer, max_step, args)
     elif args.network_type == 'contrast':
         if args.ssl:
             train_contrast_ssl(train_loader, train_ulb_loader, val_loader, model, optimizer, max_step, args) ###
