@@ -141,11 +141,10 @@ def predict_cam(model, image, label, gpu, args):
                 
             elif args.network_type == 'seam':
                 cam = F.softmax(cam, dim=1)
-                cam = F.upsample(cam[:, 1:, :, :], original_image_size, mode='bilinear', align_corners=False)[0]
+                cam = F.upsample(cam[:, :-1, :, :], original_image_size, mode='bilinear', align_corners=False)[0]
                 cam = cam.cpu().numpy() * label.reshape(args.num_sample-1, 1, 1)
                 if i % 2 == 1:
                     cam = np.flip(cam, axis=-1)
-                
                 cam_list.append(cam)
 
             elif args.network_type == 'eps' or args.network_type == 'contrast':
@@ -206,26 +205,22 @@ def infer_cam_mp(process_id, image_ids, label_list, cur_gpu, num_class=21):
 
         if args.network_type == 'cls':
             sum_cam = np.sum(cam_list, axis=0)
+            norm_cam = sum_cam / (np.max(sum_cam, (1, 2), keepdims=True) + 1e-5)
         elif args.network_type == 'seam':
             sum_cam = np.sum(cam_list, axis=0)
             sum_cam[sum_cam < 0] = 0
+            cam_max = np.max(sum_cam, (1, 2), keepdims=True)
             cam_min = np.min(sum_cam, (1, 2), keepdims=True)
             sum_cam[sum_cam < cam_min + 1e-5] = 0
-            sum_cam -= cam_min
-        else: # 'eps_seam', 'eps', 'contrast'
+            norm_cam = (sum_cam - cam_min - 1e-5) / (cam_max - cam_min + 1e-5)
+        elif args.network_type in ['eps_seam', 'eps', 'contrast']:
             cam_np = np.array(cam_list)
             cam_fg = cam_np[:, 0]
             sum_cam = np.sum(cam_fg, axis=0)
-        # else:
-        #     raise Exception('No appropriate model type')
-
-        norm_cam = sum_cam / (np.max(sum_cam, (1, 2), keepdims=True) + 1e-5)
-        # min-max norm
-        # sum_cam[sum_cam < 0] = 0
-        # cam_max = np.max(sum_cam, (1, 2), keepdims=True)
-        # cam_min = np.min(sum_cam, (1, 2), keepdims=True)
-        # sum_cam[sum_cam < cam_min+1e-5] = 0
-        # norm_cam = (sum_cam-cam_min-1e-5) / (cam_max - cam_min + 1e-5)
+            
+            norm_cam = sum_cam / (np.max(sum_cam, (1, 2), keepdims=True) + 1e-5)
+        else:
+            raise Exception('No appropriate model type')
 
         cam_dict = {}
         for j in range(num_class-1):
