@@ -624,7 +624,217 @@ def train_contrast(train_dataloader, val_dataloader, model, optimizer, max_step,
 
 ### SEAM + semi-supervsied learning ###
 def train_seam_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, model, optimizer, max_step, args):
-    pass
+    log_keys = ['loss', 'loss_cls', 'loss_er', 'loss_ecr']
+    if 1 in args.ssl_type:
+        log_keys.append('loss_mt')
+        log_keys.append('mt_mask_ratio')
+    if 2 in args.ssl_type:
+        log_keys.append('loss_pmt')
+    if 3 in args.ssl_type:
+        log_keys.append('loss_ssl')
+        log_keys.append('mask_ratio')
+    if 4 in args.ssl_type:
+        log_keys.append('loss_con')
+    avg_meter = pyutils.AverageMeter(*log_keys) ###
+
+    tb_writer = SummaryWriter(args.log_folder)
+    timer = pyutils.Timer("Session started: ")
+    loader_iter = iter(train_dataloader)
+    ### validation logging
+    val_num = 10 # 10 times
+    val_freq = max_step // val_num
+
+    lb_loader_iter = iter(train_dataloader)
+    ulb_loader_iter = iter(train_ulb_dataloader) ###
+    strong_transforms = tensor_augment_list() ###
+    # EMA
+    #ema_model = deepcopy(model)
+    ema = EMA(model, args.ema_m)
+    ema.register()
+
+    print(args)
+    for iteration in range(args.max_iters):
+        for _ in range(args.iter_size):
+            try:
+                img_id, img, label = next(loader_iter)
+                ulb_img_id, ulb_img, _, ulb_img2, _, ops2, _ = next(ulb_loader_iter)   ###
+            except:
+                loader_iter = iter(train_dataloader)
+                img_id, img, label = next(loader_iter)
+                ulb_loader_iter = iter(train_ulb_dataloader)        ###
+                ulb_img_id, ulb_img, _, ulb_img2, _, ops2, _ = next(ulb_loader_iter)   ###
+
+            img = img.cuda(non_blocking=True)
+            label = label.cuda(non_blocking=True)
+
+            img2 = F.interpolate(img, size=(128, 128), mode='bilinear', align_corners=True)
+
+            pred1, cam1, pred_rv1, cam_rv1 = model(img)
+            pred2, cam2, pred_rv2, cam_rv2 = model(img2)
+
+            ### Teacher (for ulb)
+            ema.apply_shadow()
+            with torch.no_grad():
+                ulb_pred1, ulb_cam1, ulb_pred_rv1, ulb_cam_rv1 = model(ulb_img)  ###
+
+                ### Apply strong transforms to pseudo-label(pixelwise matching with ulb_cam2) ###
+                if args.ulb_aug_type == 'strong':
+                    ulb_cam1_s = apply_strong_tr(ulb_cam1, ops2, strong_transforms=strong_transforms)
+                    # ulb_cam_rv1_s = apply_strong_tr(ulb_cam_rv1, ops2, strong_transforms=strong_transforms)
+                else: # weak aug
+                    ulb_cam1_s = ulb_cam1
+                
+                ### Cutmix 
+                if args.use_cutmix:
+                    ulb_img2, ulb_cam1_s, ulb_sal = cutmix(ulb_img2, ulb_cam1_s, ulb_sal)
+                    # ulb_img2, ulb_cam1_s, ulb_feat1_s = cutmix(ulb_img2, ulb_cam1_s, ulb_feat1_s)
+
+                ### Make strong augmented (transformed) prediction for MT ###
+                if 1 in args.ssl_type:
+                    ulb_pred1_s = F.avg_pool2d(ulb_cam1_s, kernel_size=(ulb_cam1_s.size(-2), ulb_cam1_s.size(-1)), padding=0)
+                    ulb_pred1_s = ulb_pred1_s.view(ulb_pred1_s.size(0), -1)
+                ### Make masks for pixel-wise MT ###
+                if 2 in args.ssl_type or 4 in args.ssl_type :
+                    mask = torch.ones_like(ulb_cam1)
+                    mask_s = apply_strong_tr(mask, ops2, strong_transforms=strong_transforms)
+
+            ema.restore()
+            ###
+
+            ### Student (for ulb)
+            ulb_pred2, ulb_cam2, ulb_pred_rv2, ulb_cam_rv2 = model(ulb_img2) ###
+
+            # Classification loss
+            loss_cls = F.multilabel_soft_margin_loss(pred1[:, :-1], label)
+            loss_cls2 = F.multilabel_soft_margin_loss(pred2[:, :-1], label)
+
+            bg_score = torch.ones((img.shape[0], 1)).cuda()
+            label_append_bg = torch.cat((label, bg_score), dim=1).unsqueeze(2).unsqueeze(3)  # (N, 21, 1, 1)
+            loss_cls_rv1 = adaptive_min_pooling_loss((cam_rv1 * label_append_bg)[:, :-1, :, :])
+            loss_cls_rv2 = adaptive_min_pooling_loss((cam_rv2 * label_append_bg)[:, :-1, :, :])
+
+            loss_er, loss_ecr = get_er_loss(cam1, cam2, cam_rv1, cam_rv2, label_append_bg)
+
+            # total loss
+            loss_cls = (loss_cls + loss_cls2) / 2. + (loss_cls_rv1 + loss_cls_rv2) / 2.
+            loss = loss_cls + loss_er + loss_ecr
+
+            ###########           Semi-supervsied Learning           ###########
+            if args.use_ulb_saliency:
+                label_all = torch.ones_like(ulb_cam1[:,:args.num_sample-1,:1,:1]).bool()
+                loss_ulb_sal, fg_map_ulb, bg_map_ulb, sal_pred_ulb = get_eps_loss(ulb_cam2, ulb_sal, label_all, args.tau, args.alpha, intermediate=True, num_class=args.num_sample)
+                loss += loss_ulb_sal
+                
+            #######                1. Logit MSE(L2) loss                 #######
+            if 1 in args.ssl_type:
+                ulb_p1_s = torch.sigmoid(ulb_pred1_s)
+                # Calculate loss by threholded class (pos neg both)
+                if args.mt_p:
+                    class_mask = ulb_p1_s.le(1 - args.mt_p) | ulb_p1_s.ge(args.mt_p)
+                    mt_mask = class_mask.float().mean()
+                else:
+                    class_mask = torch.ones_like(ulb_p1_s)
+                    mt_mask = torch.zeros(1)
+                # loss_mt = consistency_loss(torch.sigmoid(ulb_pred2), torch.sigmoid(ulb_pred1), 'L2')
+                loss_mt = consistency_loss(torch.sigmoid(ulb_pred2), ulb_p1_s, 'L2', mask=class_mask) # (optional) w.geometry tr.
+            
+                mt_warmup = float(np.clip(iteration / (args.mt_warmup * args.max_iters + 1e-9), 0., 1.))
+                loss += loss_mt * args.mt_lambda * mt_warmup
+
+            ######             2. Pixel-wise CAM MSE(L2) loss             ######
+            if 2 in args.ssl_type:
+                #loss_pmt = consistency_loss(torch.softmax(ulb_cam2,dim=1), torch.softmax(ulb_cam1,dim=1), 'L2') # w.o. geometry tr.
+                loss_pmt = consistency_loss(torch.softmax(ulb_cam2,dim=1), torch.softmax(ulb_cam1_s,dim=1), 'L2', mask=mask_s) # w. geometry tr.
+
+                loss += loss_pmt * args.ssl_lambda
+
+            ######  3. Pixel-wise CAM pseudo-labeling(FixMatch, CE) loss  ######
+            if 3 in args.ssl_type:
+                # loss_ssl, mask, _, pseudo_label = consistency_loss(ulb_cam2, ulb_cam1, 'ce', args.T, args.p_cutoff, args.soft_label) # w.o. geometry tr.
+                loss_ssl, mask, _, pseudo_label = consistency_loss(ulb_cam2, ulb_cam1_s, 'ce', args.T, args.p_cutoff, args.soft_label) # w. geometry tr.
+            
+                loss += loss_ssl * args.ssl_lambda
+
+            ######           4. T(f(x)) <=> f(T(x)) InfoNCE loss          ######
+            if 4 in args.ssl_type:
+                loss_con = consistency_cam_loss(torch.softmax(ulb_cam2,dim=1), torch.softmax(ulb_cam1_s,dim=1), mask_s)
+                
+                warmup = float(np.clip(iteration / (args.mt_warmup * args.max_iters + 1e-9), 0., 1.))
+                loss += loss_con * args.ssl_lambda * warmup
+
+            avg_meter.add({'loss': loss.item(),
+                           'loss_cls': loss_cls.item(),
+                           'loss_er': loss_er.item(),
+                           'loss_ecr': loss_ecr.item()})
+            if 1 in args.ssl_type:
+                avg_meter.add({'loss_mt': loss_mt.item(),
+                               'mt_mask_ratio': mt_mask.item()})
+            if 2 in args.ssl_type:
+                avg_meter.add({'loss_pmt': loss_pmt.item()})
+            if 3 in args.ssl_type:
+                avg_meter.add({'loss_ssl': loss_ssl.item(),
+                               'mask_ratio': mask.item()})
+            if 4 in args.ssl_type:
+                avg_meter.add({'loss_con': loss_con.item()})
+            ###
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            ema.update() ########
+
+            tb_dict = {}
+
+            if (optimizer.global_step-1) % 50 == 0:
+                timer.update_progress(optimizer.global_step / max_step)
+
+                ### tblog ###
+                for k in avg_meter.get_keys():
+                    tb_dict['train/' + k] = avg_meter.pop(k)
+                tb_dict['train/lr'] = optimizer.param_groups[0]['lr']
+
+                print('Iter:%5d/%5d' % (iteration, args.max_iters),
+                      'Loss_Cls:%.4f' % (tb_dict['train/loss_cls']),
+                      'Loss_ER: %.4f' % (tb_dict['train/loss_er']),
+                      'Loss_ECR:%.4f' % (tb_dict['train/loss_ecr']), end = ' ')
+                if 1 in args.ssl_type:
+                    print('Loss_MT: %.4f' % (tb_dict['train/loss_mt']),
+                          'MT_Mask_Ratio:%.4f' % (tb_dict['train/mt_mask_ratio']), end=' ')
+                if 2 in args.ssl_type:
+                    print('Loss_PMT: %.4f' % (tb_dict['train/loss_pmt']), end=' ')
+                if 3 in args.ssl_type:
+                    print('Loss_SSL:%.4f' % (tb_dict['train/loss_ssl']),
+                          'Mask_Ratio:%.4f' % (tb_dict['train/mask_ratio']), end=' ') ###
+                if 4 in args.ssl_type:
+                    print('Loss_Consistency: %.4f' % (tb_dict['train/loss_con']), end=' ')
+                print('imps:%.1f' % ((iteration+1) * args.batch_size / timer.get_stage_elapsed()),
+                      'Fin:%s' % (timer.str_est_finish()),
+                      'lr: %.4f' % (tb_dict['train/lr']), flush=True)
+            
+            # Validate 10 times
+            current_step = optimizer.global_step-(max_step % val_freq)
+            if current_step and current_step % val_freq == 0:
+                if val_dataloader is not None:
+                    # loss_, mAP, mean_acc, mean_precision, mean_recall, mean_f1, corrects, precision, recall, f1
+                    tb_dict['val/loss'], tb_dict['val/mAP'], tb_dict['val/mean_acc'], tb_dict['val/mean_precision'], \
+                    tb_dict['val/mean_recall'], tb_dict['val/mean_f1'], acc, precision, recall, f1 = validate(model, val_dataloader, iteration, args) ###
+                    # EMA model
+                    ema.apply_shadow() ###
+                    tb_dict['val_ema/loss'], tb_dict['val_ema/mAP'], tb_dict['val_ema/mean_acc'], tb_dict['val_ema/mean_precision'], \
+                    tb_dict['val_ema/mean_recall'], tb_dict['val_ema/mean_f1'], ema_acc, ema_precision, ema_recall, ema_f1 = validate(model, val_dataloader, iteration, args) ###
+                    ema.restore() ###
+                
+                # Save intermediate model
+                model_path = os.path.join(args.log_folder, f'checkpoint_{iteration}.pth')
+                torch.save(model.module.state_dict(), model_path)
+                print(f'Model {model_path} Saved.')
+
+            # tblog update
+            for k, value in tb_dict.items():
+                tb_writer.add_scalar(k, value, iteration)
+
+            timer.reset_stage()
+    torch.save(model.module.state_dict(), os.path.join(args.log_folder, 'checkpoint.pth'))
 
 
 ### EPS + semi-supervsied learning ###
@@ -640,10 +850,6 @@ def train_eps_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, model,
         log_keys.append('mask_ratio')
     if 4 in args.ssl_type:
         log_keys.append('loss_con')
-    if 5 in args.ssl_type:
-        log_keys.append('loss_cdc')
-        log_keys.append('cdc_pos_ratio')
-        log_keys.append('cdc_neg_ratio')
     avg_meter = pyutils.AverageMeter(*log_keys) ###
 
     tb_writer = SummaryWriter(args.log_folder)
@@ -667,7 +873,7 @@ def train_eps_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, model,
         for _ in range(args.iter_size):
             try:
                 img_id, img, saliency, label = next(loader_iter)
-                ulb_img_id, ulb_img, ulb_sal, ulb_img2, ulb_sal2, ops2, _ = next(ulb_loader_iter)
+                ulb_img_id, ulb_img, ulb_sal, ulb_img2, _, ops2, _ = next(ulb_loader_iter)
             except:
                 loader_iter = iter(train_dataloader)
                 img_id, img, saliency, label = next(loader_iter)
@@ -693,8 +899,6 @@ def train_eps_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, model,
                 if args.ulb_aug_type == 'strong':
                     ulb_cam1_s = apply_strong_tr(ulb_cam1, ops2, strong_transforms=strong_transforms)
                     # ulb_cam_rv1_s = apply_strong_tr(ulb_cam_rv1, ops2, strong_transforms=strong_transforms)
-                    # if 5 in args.ssl_type:
-                    #     ulb_feat1_s = apply_strong_tr(ulb_feat1, ops2, strong_transforms=strong_transforms)
                 else: # weak aug
                     ulb_cam1_s = ulb_cam1
                 
@@ -773,9 +977,6 @@ def train_eps_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, model,
                 warmup = float(np.clip(iteration / (args.mt_warmup * args.max_iters + 1e-9), 0., 1.))
                 loss += loss_con * args.ssl_lambda * warmup
 
-            ######      5. Class Discriminative(Divide) Contrastive loss       ######
-            ### pass ###
-
             avg_meter.add({'loss': loss.item(),
                            'loss_cls': loss_cls.item(),
                            'loss_sal': loss_sal.item()})
@@ -789,10 +990,6 @@ def train_eps_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, model,
                                'mask_ratio': mask.item()})
             if 4 in args.ssl_type:
                 avg_meter.add({'loss_con': loss_con.item()})
-            if 5 in args.ssl_type:
-                avg_meter.add({'loss_cdc': loss_cdc.item(),
-                               'cdc_pos_ratio': cdc_pos_mask.item(),
-                               'cdc_neg_ratio': cdc_neg_mask.item()})
             ###
 
             optimizer.zero_grad()
@@ -822,11 +1019,7 @@ def train_eps_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, model,
                     print('Loss_SSL:%.4f' % (tb_dict['train/loss_ssl']),
                           'Mask_Ratio:%.4f' % (tb_dict['train/mask_ratio']), end=' ') ###
                 if 4 in args.ssl_type:
-                    print('Loss_Consistency: %.4f' % (tb_dict['train/loss_con']), end=' ')
-                if 5 in args.ssl_type:
-                    print('Loss_CDC: %.4f' % (tb_dict['train/loss_cdc']),
-                          'CDC_Pos_Ratio:%.4f' % (tb_dict['train/cdc_pos_ratio']),
-                          'CDC_Neg_Ratio:%.4f' % (tb_dict['train/cdc_neg_ratio']), end=' ')    
+                    print('Loss_Consistency: %.4f' % (tb_dict['train/loss_con']), end=' ')  
                 print('imps:%.1f' % ((iteration+1) * args.batch_size / timer.get_stage_elapsed()),
                       'Fin:%s' % (timer.str_est_finish()),
                       'lr: %.4f' % (tb_dict['train/lr']), flush=True)
@@ -859,7 +1052,6 @@ def train_eps_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, model,
 
 
 ### contrast + semi-supervised learning ###
-# Mean Teacher
 def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, model, optimizer, max_step, args):
     log_keys = ['loss', 'loss_cls', 'loss_sal', 'loss_nce', 'loss_er', 'loss_ecr']
     if 1 in args.ssl_type:
