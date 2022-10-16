@@ -62,7 +62,7 @@ def get_arguments():
 
     parser.add_argument('--ulb_aug_type', default='strong', type=str) # None / weak / strong
     parser.add_argument('--n_strong_aug', default=5, type=int) # number of RandAug
-    parser.add_argument('--use_cutmix', action='store_true') # Use CutMix
+    parser.add_argument('--use_cutmix', action='store_true', default=True) # Use CutMix
     parser.add_argument('--use_ulb_saliency', action='store_true') # Use Saliency map for unlabeled teacher
 
     parser.add_argument('--ema_m', default=0.999, type=float) # ratio of ulb / lb data
