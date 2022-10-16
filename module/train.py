@@ -686,7 +686,7 @@ def train_seam_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, model
                 
                 ### Cutmix 
                 if args.use_cutmix:
-                    ulb_img2, ulb_cam1_s, ulb_sal = cutmix(ulb_img2, ulb_cam1_s, ulb_sal)
+                    ulb_img2, ulb_cam1_s = cutmix(ulb_img2, ulb_cam1_s)
                     # ulb_img2, ulb_cam1_s, ulb_feat1_s = cutmix(ulb_img2, ulb_cam1_s, ulb_feat1_s)
 
                 ### Make strong augmented (transformed) prediction for MT ###
@@ -720,11 +720,6 @@ def train_seam_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, model
             loss = loss_cls + loss_er + loss_ecr
 
             ###########           Semi-supervsied Learning           ###########
-            if args.use_ulb_saliency:
-                label_all = torch.ones_like(ulb_cam1[:,:args.num_sample-1,:1,:1]).bool()
-                loss_ulb_sal, fg_map_ulb, bg_map_ulb, sal_pred_ulb = get_eps_loss(ulb_cam2, ulb_sal, label_all, args.tau, args.alpha, intermediate=True, num_class=args.num_sample)
-                loss += loss_ulb_sal
-                
             #######                1. Logit MSE(L2) loss                 #######
             if 1 in args.ssl_type:
                 ulb_p1_s = torch.sigmoid(ulb_pred1_s)
@@ -873,12 +868,12 @@ def train_eps_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, model,
         for _ in range(args.iter_size):
             try:
                 img_id, img, saliency, label = next(loader_iter)
-                ulb_img_id, ulb_img, ulb_sal, ulb_img2, _, ops2, _ = next(ulb_loader_iter)
+                ulb_img_id, ulb_img, _, ulb_img2, _, ops2, _ = next(ulb_loader_iter)
             except:
                 loader_iter = iter(train_dataloader)
                 img_id, img, saliency, label = next(loader_iter)
                 ulb_loader_iter = iter(train_ulb_dataloader)        ###
-                ulb_img_id, ulb_img, ulb_sal, ulb_img2, _, ops2, _ = next(ulb_loader_iter)   ###
+                ulb_img_id, ulb_img, _, ulb_img2, _, ops2, _ = next(ulb_loader_iter)   ###
 
             img = img.cuda(non_blocking=True)
             saliency = saliency.cuda(non_blocking=True)
@@ -886,7 +881,6 @@ def train_eps_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, model,
 
             ulb_img = ulb_img.cuda(non_blocking=True)               ###
             ulb_img2 = ulb_img2.cuda(non_blocking=True)               ###
-            ulb_sal = ulb_sal.cuda(non_blocking=True)               ###
 
             pred, cam = model(img)
 
@@ -904,7 +898,7 @@ def train_eps_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, model,
                 
                 ### Cutmix 
                 if args.use_cutmix:
-                    ulb_img2, ulb_cam1_s, ulb_sal = cutmix(ulb_img2, ulb_cam1_s, ulb_sal)
+                    ulb_img2, ulb_cam1_s = cutmix(ulb_img2, ulb_cam1_s)
                     # ulb_img2, ulb_cam1_s, ulb_feat1_s = cutmix(ulb_img2, ulb_cam1_s, ulb_feat1_s)
 
                 ### Make strong augmented (transformed) prediction for MT ###
@@ -934,12 +928,7 @@ def train_eps_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, model,
                                                               num_class=args.num_sample)
             loss = loss_cls + loss_sal
 
-            ###########           Semi-supervsied Learning           ###########
-            if args.use_ulb_saliency:
-                label_all = torch.ones_like(ulb_cam1[:,:args.num_sample-1,:1,:1]).bool()
-                loss_ulb_sal, fg_map_ulb, bg_map_ulb, sal_pred_ulb = get_eps_loss(ulb_cam2, ulb_sal, label_all, args.tau, args.alpha, intermediate=True, num_class=args.num_sample)
-                loss += loss_ulb_sal
-                
+            ###########           Semi-supervsied Learning           ###########   
             #######                1. Logit MSE(L2) loss                 #######
             if 1 in args.ssl_type:
                 ulb_p1_s = torch.sigmoid(ulb_pred1_s)
@@ -1091,12 +1080,12 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
         for _ in range(args.iter_size):
             try:
                 img_id, img, saliency, label = next(lb_loader_iter)
-                ulb_img_id, ulb_img, ulb_sal, ulb_img2, ulb_sal2, ops2, _ = next(ulb_loader_iter)   ###
+                ulb_img_id, ulb_img, _, ulb_img2, _, ops2, _ = next(ulb_loader_iter)   ###
             except:
                 lb_loader_iter = iter(train_dataloader)
                 img_id, img, saliency, label = next(lb_loader_iter)
                 ulb_loader_iter = iter(train_ulb_dataloader)        ###
-                ulb_img_id, ulb_img, ulb_sal, ulb_img2, _, ops2, _ = next(ulb_loader_iter)   ###
+                ulb_img_id, ulb_img, _, ulb_img2, _, ops2, _ = next(ulb_loader_iter)   ###
                 
             img = img.cuda(non_blocking=True)
             saliency = saliency.cuda(non_blocking=True)
@@ -1104,7 +1093,7 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
             
             ulb_img = ulb_img.cuda(non_blocking=True)               ###
             ulb_img2 = ulb_img2.cuda(non_blocking=True)               ###
-            ulb_sal = ulb_sal.cuda(non_blocking=True)               ###
+            # ulb_sal = ulb_sal.cuda(non_blocking=True)               ###
 
             img2 = F.interpolate(img, size=(128, 128), mode='bilinear', align_corners=True)
             saliency2 = F.interpolate(saliency, size=(128, 128), mode='bilinear', align_corners=True)
@@ -1152,7 +1141,7 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
                 
                 ### Cutmix 
                 if args.use_cutmix:
-                    ulb_img2, ulb_cam1_s, ulb_sal = cutmix(ulb_img2, ulb_cam1_s, ulb_sal)
+                    ulb_img2, ulb_cam1_s = cutmix(ulb_img2, ulb_cam1_s)
                     # ulb_img2, ulb_cam1_s, ulb_feat1_s = cutmix(ulb_img2, ulb_cam1_s, ulb_feat1_s)
 
                 ### Make strong augmented (transformed) prediction for MT ###
@@ -1203,11 +1192,6 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
             loss = loss_cls + loss_sal + loss_nce + loss_er + loss_ecr
             
             ###########           Semi-supervsied Learning           ###########
-            if args.use_ulb_saliency:
-                label_all = torch.ones_like(ulb_cam1[:,:args.num_sample-1,:1,:1]).bool()
-                loss_ulb_sal, fg_map_ulb, bg_map_ulb, sal_pred_ulb = get_eps_loss(ulb_cam2, ulb_sal, label_all, args.tau, args.alpha, intermediate=True, num_class=args.num_sample)
-                loss += loss_ulb_sal
-                
             #######                1. Logit MSE(L2) loss                 #######
             if 1 in args.ssl_type:
                 ulb_p1_s = torch.sigmoid(ulb_pred1_s)
