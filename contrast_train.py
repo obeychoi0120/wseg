@@ -9,8 +9,7 @@ from util import pyutils
 from module.dataloader import get_dataloader
 from module.model import get_model
 from module.optimizer import get_optimizer
-from module.train import train_cls, train_seam, train_eps, train_contrast, train_seam_ssl, train_eps_ssl, train_contrast_ssl
-from module.validate import validate
+from module.train import train_cls, train_seam, train_eps, train_contrast, train_seam_ssl, train_eps_ssl, train_contrast_ssl, train_contrast_ssl_union
 
 cudnn.enabled = True
 torch.backends.cudnn.benchmark = False
@@ -71,6 +70,7 @@ def get_arguments():
     
     parser.add_argument('--ssl_lambda', default=1.0, type=float) # ratio of ssl loss
     parser.add_argument('--p_cutoff', default=0.95, type=float)
+    parser.add_argument('--th_scheduler', action='store_true') # Threshold Scheduler
     parser.add_argument('--T', type=float, default=0.5)
     parser.add_argument('--soft_label', action='store_true') # hard label(Default) or soft label
 
@@ -121,7 +121,6 @@ if __name__ == '__main__':
     os.makedirs(args.log_folder, exist_ok=True)
 
     pyutils.Logger(os.path.join(args.log_folder, 'log_cls.log'))
-    print(vars(args))
     shutil.copyfile('./contrast_train.py', os.path.join(args.log_folder, 'contrast_train.py'))
     shutil.copyfile('./module/train.py', os.path.join(args.log_folder, 'train.py'))
 
@@ -147,6 +146,8 @@ if __name__ == '__main__':
     model = torch.nn.DataParallel(model).cuda()
     model.train()
     
+    print(vars(args))
+
     if args.network_type == 'cls':
         train_cls(train_loader, val_loader, model, optimizer, max_step, args)
     elif args.network_type == 'seam':
@@ -161,7 +162,11 @@ if __name__ == '__main__':
             train_eps(train_loader, val_loader, model, optimizer, max_step, args)
     elif args.network_type == 'contrast':
         if args.ssl:
-            train_contrast_ssl(train_loader, train_ulb_loader, val_loader, model, optimizer, max_step, args) ###
+            print(args.train_list,args.train_ulb_list)
+            if args.train_list == args.train_ulb_list: # 100% labeled setting
+                train_contrast_ssl_union(train_ulb_loader, val_loader, model, optimizer, max_step, args) ###
+            else:
+                train_contrast_ssl(train_loader, train_ulb_loader, val_loader, model, optimizer, max_step, args) ###
         else:
             train_contrast(train_loader, val_loader, model, optimizer, max_step, args)
     else:
