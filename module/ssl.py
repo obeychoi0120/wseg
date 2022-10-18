@@ -6,6 +6,52 @@ from torchvision.transforms import functional as tvf
 import numpy as np
 from PIL import Image
 
+###########           Semi-supervsied Learning           ###########
+def get_ssl_loss(args, iteration, pred_s=None, pred_t=None, cam_s=None, cam_t=None, feat_s=None, feat_t=None, mask=None):
+    losses = {'loss_ssl': 0}
+
+    #######                1. Logit MSE(L2) loss                 #######
+    if 1 in args.ssl_type:
+        pl_t = torch.sigmoid(pred_t)
+        # Calculate loss by threholded class (pos neg both)
+        if args.mt_p:
+            class_mask = pl_t.le(1 - args.mt_p) | pl_t.ge(args.mt_p)
+            losses['mask_mt'] = class_mask.float().mean()
+        else:
+            class_mask = torch.ones_like(pl_t)
+            losses['mask_mt'] = torch.zeros(1)
+
+        # loss_mt = consistency_loss(torch.sigmoid(pred_s), torch.sigmoid(pl_t), 'L2')
+        losses['loss_mt'] = consistency_loss(torch.sigmoid(pred_s), pl_t, 'L2', mask=class_mask) # (optional) w.geometry tr.
+
+        mt_warmup = float(np.clip(iteration / (args.mt_warmup * args.max_iters + 1e-9), 0., 1.))
+        losses['loss_ssl'] += losses['loss_mt'] * args.mt_lambda * mt_warmup                    
+
+    ######             2. Pixel-wise CAM MSE(L2) loss             ######
+    if 2 in args.ssl_type:
+        losses['loss_pmt'] = consistency_loss(torch.softmax(pred_s,dim=1), torch.softmax(pred_t,dim=1), 'L2', mask=mask)
+        losses['loss_ssl'] += losses['loss_pmt'] * args.ssl_lambda
+
+    ######  3. Pixel-wise CAM pseudo-labeling(FixMatch, CE) loss  ######
+    if 3 in args.ssl_type:
+        losses['loss_pl'], losses['mask_pl'], _, pseudo_label = consistency_loss(cam_s, cam_t, 'ce', args.T, args.p_cutoff, args.soft_label)
+        losses['loss_ssl'] += losses['loss_pl'] * args.ssl_lambda
+
+    ######           4. T(f(x)) <=> f(T(x)) InfoNCE loss          ######
+    if 4 in args.ssl_type:
+        losses['loss_con'] = consistency_cam_loss(torch.softmax(cam_s, dim=1), torch.softmax(cam_t, dim=1), mask)
+        
+        warmup = float(np.clip(iteration / (args.mt_warmup * args.max_iters + 1e-9), 0., 1.))
+        losses['loss_ssl'] += losses['loss_con'] * args.ssl_lambda * warmup
+
+    ######      5. Class Discriminative(Divide) Contrastive loss       ######
+    if 5 in args.ssl_type:
+        losses['loss_cdc'], losses['mask_cdc_pos'], losses['mask_cdc_neg'] = class_discriminative_contrastive_loss(cam_s, feat_s, args.p_cutoff, inter=args.cdc_inter, temperature=args.cdc_T, normalize=args.cdc_norm)
+        losses['loss_ssl'] += losses['loss_cdc'] * args.cdc_lambda
+
+    return losses
+    
+
 def consistency_loss(logits_s, logits_t, name='L2', T=1.0, p_cutoff=0.0, use_soft_label=False, mask=None):
     logits_t = logits_t.detach()
     if name == 'L2':

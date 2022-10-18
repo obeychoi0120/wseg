@@ -29,12 +29,30 @@ def get_saliency_path(img_name, saliency_root='SALImages'):
 class ImageDataset(Dataset):
     """
     Base image dataset. This returns 'img_id' and 'image'
+    Performs Weak or Strong Augmentations.
     """
-    def __init__(self, dataset, img_id_list_file, img_root, transform=None):
+    def __init__(self, dataset, img_id_list_file, img_root, tv_transform=None,
+                 crop_size=224, resize_size=(256, 512), aug_type=None, n_strong_aug=5):
         self.dataset = dataset
         self.img_id_list = load_img_id_list(img_id_list_file)
         self.img_root = img_root
-        self.transform = transform
+        # Dataset use (1).self.transform(Torchvision Transformations)
+        self.tv_transform = tv_transform
+        
+        # or (2).Weak & Strong Augmentations
+        self.crop_size = crop_size
+        self.resize_size = resize_size
+        self.aug_type = aug_type
+
+        self.resize = RandomResizeLong(resize_size[0], resize_size[1])
+        self.color = transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.1)
+        self.normalize = Normalize()
+
+        if self.aug_type == 'strong': ###
+            blur_kernel_size = int(random.random() * 4.95)
+            blur_kernel_size = blur_kernel_size + 1 if blur_kernel_size % 2 == 0 else blur_kernel_size
+            self.strong_transforms = [transforms.GaussianBlur(blur_kernel_size, sigma=(0.1, 2.0))] # non-geometric transformations
+            self.randaug = RandAugment(n_strong_aug, 5) ###
 
     def __len__(self):
         return len(self.img_id_list)
@@ -43,24 +61,181 @@ class ImageDataset(Dataset):
         img_id = self.img_id_list[idx]
         img = PIL.Image.open(os.path.join(self.img_root, img_id + '.jpg')).convert("RGB")
 
-        if self.transform:
-            img = self.transform(img)
+        # Use torchvision Transforms
+        if self.tv_transform:
+            return img_id, self.tv_transform(img)
 
-        return img_id, img
+        # Use weak | strong augmentations
+        else:
+            ### Image 1. Weak Augmentation ###
+            img1, weak_tr = self.__apply_transform(img, get_transform=True)
+            img1 = self.__totensor(img1)
 
+            ### Image 2. Weak augmentation ###
+            if self.aug_type == 'weak':
+                img2, _  = self.__apply_transform(img, True, False, *weak_tr)
+                img2 = self.__totensor(img2)
+
+                return img_id, img1, img2, []
+
+            ### Image 2. Strong augmetation (for consistency regularization) ###
+            elif self.aug_type == 'strong':
+                img2, _, strong_tr = self.__apply_transform(img, True, True, *weak_tr)
+                img2 = self.__totensor(img2)
+                
+                return img_id, img1, img2, strong_tr
+
+            else:
+                return Exception('No appropriate Augmentation type')
+    
+    def __apply_transform(self, img, get_transform=False, strong=False, target_size=None, hflip=None, tr_random_crop=None):
+        # randomly resize
+        if target_size is None:
+            target_size = random.randint(self.resize_size[0], self.resize_size[1])
+        img = self.resize(img, target_size)
+
+        # Randomly flip
+        if hflip is None:
+            hflip = random.random() > 0.5
+        img = vision_tf.hflip(img)
+
+        # Add color jitter
+        img = self.color(img)
+
+        # Random Crop
+        img, _, tr_random_crop = random_crop_with_saliency_pil(img, crop_size=self.crop_size, get_transform=True, transforms=tr_random_crop)
+
+        # Strong Augmentation
+        if strong:
+            for tr in self.strong_transforms:
+                img = tr(img)
+            img, strong_tr = self.randaug(img) # saliency2
+
+        # Make numpy and normalize
+        img = np.asarray(img, dtype=np.float32)
+        img = self.normalize(img)
+
+        if get_transform: ###
+            if strong:
+                return img, (target_size, hflip, tr_random_crop), strong_tr
+            else:
+                return img, (target_size, hflip, tr_random_crop)
+        else:
+            return img
+    
+    def __totensor(self, img):
+        # Image
+        img = HWC_to_CHW(img)
+        img = torch.from_numpy(img)
+
+        return img
 
 class ClassificationDataset(ImageDataset):
     """
-    Classification Dataset (base)
+    for SEAM, SIPE
     """
-    def __init__(self, dataset, img_id_list_file, img_root, transform=None):
-        super().__init__(dataset, img_id_list_file, img_root, transform)
-        self.label_list = load_img_label_list_from_npy(self.img_id_list, dataset)
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.label_list = load_img_label_list_from_npy(self.img_id_list, self.dataset)
 
     def __getitem__(self, idx):
-        name, img = super().__getitem__(idx)
         label = torch.from_numpy(self.label_list[idx])
-        return name, img, label
+
+        return super().__getitem__(idx) + (label,)
+
+
+class ClassificationDatasetWithSaliency(ImageDataset):
+    """
+    for EPS, PPC
+    """
+    def __init__(self, saliency_root=None, **kwargs):
+        super().__init__(**kwargs)
+        # self.tv_transform is useless in ClassificationDatasetWithSaliency
+        self.saliency_root = saliency_root
+
+        self.label_list = load_img_label_list_from_npy(self.img_id_list, self.dataset)
+
+    def __getitem__(self, idx):
+        img_id = self.img_id_list[idx]
+        img = PIL.Image.open(os.path.join(self.img_root, img_id + '.jpg')).convert("RGB")
+        saliency = PIL.Image.open(get_saliency_path(img_id, self.saliency_root)).convert("RGB")
+
+        label = torch.from_numpy(self.label_list[idx])
+
+        ### Image 1 ###
+        img1, saliency1, weak_tr = self.__apply_transform_with_mask(img, saliency, get_transform=True)
+        img1, saliency1 = self.__totensor(img1, saliency1)
+
+        ### Image 2: Weak augmentation (for Mean Teacher)
+        if self.aug_type == 'weak':
+            img2, saliency2, _  = self.__apply_transform_with_mask(img, saliency, True, False, *weak_tr)
+            img2, saliency2 = self.__totensor(img2, saliency2)
+
+            return img_id, img1, saliency1, img2, saliency2, [], label
+
+        ### Image 2: Strong augmetation (for MT, FixMatch)
+        elif self.aug_type == 'strong':
+            ### TODO: mask transform, return aug information
+            img2, saliency2, _, strong_tr = self.__apply_transform_with_mask(img, saliency, True, True, *weak_tr)
+            img2, saliency2 = self.__totensor(img2, saliency2)
+            
+            return img_id, img1, saliency1, img2, saliency2, strong_tr, label
+        else:
+            return Exception('No appropriate Augmentation type')
+
+    def __apply_transform_with_mask(self, img, mask, get_transform=False, strong=False, target_size=None, hflip=None, tr_random_crop=None):
+        # Randomly resize
+        if target_size is None:
+            target_size = random.randint(self.resize_size[0], self.resize_size[1])
+        img = self.resize(img, target_size)
+        mask = self.resize(mask, target_size)
+
+        # Randomly flip
+        if hflip is None:
+            hflip = random.random() > 0.5
+        img = vision_tf.hflip(img)
+        mask = vision_tf.hflip(mask)
+
+        # Add color jitter
+        img = self.color(img)
+
+        # Random Crop
+        img, mask, tr_random_crop = random_crop_with_saliency_pil(img, mask, self.crop_size, get_transform=True, transforms=tr_random_crop)
+
+        # Strong Augmentation
+        if strong:
+            for tr in self.strong_transforms:
+                img = tr(img)
+                mask = tr(mask) if mask is not None else None ###
+            img, strong_tr = self.randaug(img) # saliency2
+            mask, _ = self.randaug(mask, trs=strong_tr, only_geometric=True)
+
+        # Make numpy array
+        img = np.asarray(img, dtype=np.float32)
+        mask = np.asarray(mask, dtype=np.float32)
+
+        # Normalize
+        img = self.normalize(img)
+        mask = mask / 255.
+        
+        if get_transform: ###
+            if strong:
+                return img, mask, (target_size, hflip, tr_random_crop), strong_tr
+            else:
+                return img, mask, (target_size, hflip, tr_random_crop)
+        else:
+            return img, mask
+    
+    def __totensor(self, img, mask=None):
+        # Permute Channels
+        img = HWC_to_CHW(img)
+        mask = HWC_to_CHW(mask)
+        # Make numpy array
+        img = torch.from_numpy(img)
+        mask = torch.from_numpy(mask)
+        mask = torch.mean(mask, dim=0, keepdim=True)
+        
+        return img, mask
 
 
 class ClassificationDatasetOnMemory(ClassificationDataset):
@@ -83,119 +258,6 @@ class ClassificationDatasetOnMemory(ClassificationDataset):
 
         label = torch.from_numpy(self.label_list[idx])
         return img_id, img, label
-
-
-class ClassificationDatasetWithSaliency(ImageDataset):
-    """
-    Classification Dataset with saliency
-    """
-    def __init__(self, dataset, img_id_list_file, img_root, saliency_root=None,
-                 crop_size=224, resize_size=(256, 512), aug_type=None, n_strong_aug=3):
-        super().__init__(dataset, img_id_list_file, img_root, transform=None)
-        self.saliency_root = saliency_root
-        self.crop_size = crop_size
-        self.resize_size = resize_size
-        self.aug_type = aug_type
-
-        self.resize = RandomResizeLong(resize_size[0], resize_size[1])
-        self.color = transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.1)
-        self.normalize = Normalize()
-
-        self.label_list = load_img_label_list_from_npy(self.img_id_list, dataset)
-
-        if self.aug_type == 'strong': ###
-            blur_kernel_size = int(random.random() * 4.95)
-            blur_kernel_size = blur_kernel_size + 1 if blur_kernel_size % 2 == 0 else blur_kernel_size
-            self.strong_transforms = [transforms.GaussianBlur(blur_kernel_size, sigma=(0.1, 2.0))] # non-geometric transformations
-            self.randaug = RandAugment(n_strong_aug, 5) ###
-
-    def __getitem__(self, idx):
-        img_id = self.img_id_list[idx]
-
-        img = PIL.Image.open(os.path.join(self.img_root, img_id + '.jpg')).convert("RGB")
-        saliency = PIL.Image.open(get_saliency_path(img_id, self.saliency_root)).convert("RGB")
-
-        return self._getitem_with_aug(idx, img_id, img, saliency)
-
-    def _getitem_with_aug(self, idx, img_id, img, saliency):
-        label = torch.from_numpy(self.label_list[idx])
-        img1, saliency1, weak_tr = self.transform_with_mask(img, saliency, get_transform=True)
-        img1, saliency1 = self.totensor(img1, saliency1)
-
-        ### Normal 
-        if self.aug_type is None:
-            return img_id, img1, saliency1, label
-        # Another weak augmentation (for Mean Teacher)
-        elif self.aug_type == 'weak':
-            img2, saliency2, _  = self.transform_with_mask(img, saliency, True, False, *weak_tr)
-            img2, saliency2 = self.totensor(img2, saliency2)
-            return img_id, img1, saliency1, img2, saliency2, [], label
-        # with strong augmetation (for MT, FixMatch)
-        elif self.aug_type == 'strong':
-            ### TODO: mask transform, return aug information
-            img2, saliency2, _, strong_tr = self.transform_with_mask(img, saliency, True, True, *weak_tr)
-            img2, saliency2 = self.totensor(img2, saliency2)
-            
-            return img_id, img1, saliency1, img2, saliency2, strong_tr, label
-        else:
-            return ###
-
-    def transform_with_mask(self, img, mask, get_transform=False, strong=False, target_size=None, hflip=None, tr_random_crop=None):
-        # randomly resize
-        if target_size is None:
-            target_size = random.randint(self.resize_size[0], self.resize_size[1])
-        img = self.resize(img, target_size)
-        mask = self.resize(mask, target_size)
-
-        # randomly flip
-        if hflip is None:
-            hflip = random.random() > 0.5
-        img = vision_tf.hflip(img)
-        mask = vision_tf.hflip(mask)
-
-        # add color jitter
-        img = self.color(img)
-
-        # Random Crop
-        img, mask, tr_random_crop = random_crop_with_saliency_pil(img, mask, self.crop_size, get_transform=True, transforms=tr_random_crop)
-
-        # Strong Augmentation
-        if strong:
-            for tr in self.strong_transforms:
-                img = tr(img)
-                mask = tr(mask)
-            img, strong_tr = self.randaug(img) # saliency2
-            mask, _ = self.randaug(mask, trs=strong_tr, only_geometric=True)
-
-        img = np.asarray(img, dtype=np.float32)
-        mask = np.asarray(mask, dtype=np.float32)
-
-        # normalize
-        img = self.normalize(img)
-        mask = mask / 255.
-
-        # # Random Crop (unuse)
-        # img, mask, tr_random_crop = random_crop_with_saliency(img, mask, self.crop_size, get_transform=True, transforms=tr_random_crop)
-
-        if get_transform: ###
-            if strong:
-                return img, mask, [target_size, hflip, tr_random_crop], strong_tr
-            else:
-                return img, mask, [target_size, hflip, tr_random_crop]
-        else:
-            return img, mask
-
-    def totensor(self, img, mask):
-        # permute the order of dimensions
-        img = HWC_to_CHW(img)
-        mask = HWC_to_CHW(mask)
-
-        # make tensor
-        img = torch.from_numpy(img)
-        mask = torch.from_numpy(mask)
-        mask = torch.mean(mask, dim=0, keepdim=True)
-
-        return img, mask
 
 
 class ClassificationDatasetWithSaliencyOnMemory(ClassificationDatasetWithSaliency):
