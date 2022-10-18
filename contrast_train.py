@@ -152,7 +152,8 @@ if __name__ == '__main__':
     
     # Arguments
     print(vars(args))
-    wandb.config.update(args)
+    if not args.without_wandb:
+        wandb.config.update(args)
     
     # Train
     if args.network_type == 'cls':
