@@ -10,7 +10,7 @@ from util import pyutils
 from module.dataloader import get_dataloader
 from module.model import get_model
 from module.optimizer import get_optimizer
-from module.train import train_cls, train_seam, train_eps, train_contrast, train_seam_ssl, train_eps_ssl, train_contrast_ssl, train_contrast_ssl_union
+from module.train import train_cls, train_seam, train_eps, train_contrast, train_seam_ssl, train_eps_ssl, train_contrast_ssl
 
 cudnn.enabled = True
 torch.backends.cudnn.benchmark = False
@@ -21,7 +21,7 @@ def get_arguments():
     parser = argparse.ArgumentParser()
     # session
     parser.add_argument('--session', default='wsss', type=str)
-    parser.add_argument('--without_wandb', action='store_true') ### Don't Use wandb Logging (Default: Use)
+    parser.add_argument('--use_wandb', action='store_true') ### Use wandb Logging
 
     # data
     parser.add_argument("--dataset", default='voc12', choices=dataset_list, type=str)
@@ -118,7 +118,7 @@ if __name__ == '__main__':
     args = get_arguments()
 
     # Set wandb Logger
-    if not args.without_wandb:
+    if args.use_wandb:
         wandb.init(name=args.session, project='WSSS')
         # wandb.run.id = wandb.run.name
         # wandb.run.save()
@@ -152,7 +152,7 @@ if __name__ == '__main__':
     
     # Arguments
     print(vars(args))
-    if not args.without_wandb:
+    if args.use_wandb:
         wandb.config.update(args)
     
     # Train
@@ -170,10 +170,6 @@ if __name__ == '__main__':
             train_eps(train_loader, val_loader, model, optimizer, max_step, args)
     elif args.network_type == 'contrast':
         if args.ssl:
-            # if args.train_list == args.train_ulb_list: # 100% labeled setting
-            #     train_contrast_ssl_union(train_ulb_loader, val_loader, model, optimizer, max_step, args) ###
-            # else:
-            #     train_contrast_ssl(train_loader, train_ulb_loader, val_loader, model, optimizer, max_step, args) ###
             train_contrast_ssl(train_loader, train_ulb_loader, val_loader, model, optimizer, max_step, args) ###
         else:
             train_contrast(train_loader, val_loader, model, optimizer, max_step, args)

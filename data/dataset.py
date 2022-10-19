@@ -71,8 +71,11 @@ class ImageDataset(Dataset):
             img1, weak_tr = self.__apply_transform(img, get_transform=True)
             img1 = self.__totensor(img1)
 
+            if not self.aug_type:
+                return img_id, img1
+
             ### Image 2. Weak augmentation ###
-            if self.aug_type == 'weak':
+            elif self.aug_type == 'weak':
                 img2, _  = self.__apply_transform(img, True, False, *weak_tr)
                 img2 = self.__totensor(img2)
 
@@ -86,7 +89,7 @@ class ImageDataset(Dataset):
                 return img_id, img1, img2, strong_tr
 
             else:
-                return Exception('No appropriate Augmentation type')
+                raise Exception('No appropriate Augmentation type')
     
     def __apply_transform(self, img, get_transform=False, strong=False, target_size=None, hflip=None, tr_random_crop=None):
         # randomly resize
@@ -166,8 +169,11 @@ class ClassificationDatasetWithSaliency(ImageDataset):
         img1, saliency1, weak_tr = self.__apply_transform_with_mask(img, saliency, get_transform=True)
         img1, saliency1 = self.__totensor(img1, saliency1)
 
+        if not self.aug_type:
+            return img_id, img1, saliency1, label
+
         ### Image 2: Weak augmentation (for Mean Teacher)
-        if self.aug_type == 'weak':
+        elif self.aug_type == 'weak':
             img2, saliency2, _  = self.__apply_transform_with_mask(img, saliency, True, False, *weak_tr)
             img2, saliency2 = self.__totensor(img2, saliency2)
 
@@ -181,7 +187,7 @@ class ClassificationDatasetWithSaliency(ImageDataset):
             
             return img_id, img1, saliency1, img2, saliency2, strong_tr, label
         else:
-            return Exception('No appropriate Augmentation type')
+            raise Exception('No appropriate Augmentation type')
 
     def __apply_transform_with_mask(self, img, mask, get_transform=False, strong=False, target_size=None, hflip=None, tr_random_crop=None):
         # Randomly resize
