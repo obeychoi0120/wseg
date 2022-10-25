@@ -23,7 +23,7 @@ CUDA_VISIBLE_DEVICES=${GPU} python3 contrast_train.py \
   --crop_size 448 \
   --tau 0.4 \
   --max_iters 10000 \
-  --iter_size 1 \
+  --iter_size 2 \
   --batch_size 8
 
 
@@ -61,7 +61,7 @@ CUDA_VISIBLE_DEVICES=${GPU} python3 eval.py \
 
 
 # 4. Generate Segmentation pseudo label
-python pseudo_label_gen.py \
-    --datalist data/voc12/${DATA}_id.txt \
-    --crf_pred train_log/${SESSION}/result/crf_png/crf_5_8 \
-    --label_save_dir train_log/${SESSION}/result/crf_seg
+# python pseudo_label_gen.py \
+#     --datalist data/voc12/${DATA}_id.txt \
+#     --crf_pred train_log/${SESSION}/result/crf_png/crf_5_8 \
+#     --label_save_dir train_log/${SESSION}/result/crf_seg
