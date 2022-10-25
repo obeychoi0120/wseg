@@ -105,7 +105,7 @@ def random_crop_with_saliency(imgarr, mask, crop_size, get_transform=False, tran
         return container, container_mask
 
 
-def random_crop_with_saliency_pil(img, mask, crop_size, get_transform=False, transforms=None):
+def random_crop_with_saliency_pil(img, mask=None, crop_size=448, get_transform=False, transforms=None):
     w, h = img.size
     w_space = crop_size - w
     h_space = crop_size - h
@@ -116,15 +116,15 @@ def random_crop_with_saliency_pil(img, mask, crop_size, get_transform=False, tra
         left = random.randrange(abs(w_padding)+1)
         top = random.randrange(abs(h_padding)+1)
         transforms = [left, top]
-        #print(f'w:{w},h:{h},w_padding:{w_padding}, h_padding:{h_padding}, left:{left}, top:{top}\n')
     else:
         left, top = transforms
-    #print('size', img.size, vision_tf.pad(img, [w_padding, h_padding, w_padding + w_space%2, h_padding + h_space%2]).size)
 
     img = vision_tf.pad(img, [w_padding, h_padding, w_padding + w_space%2, h_padding + h_space%2])
     img = vision_tf.crop(img, top, left, crop_size, crop_size)
-    mask = vision_tf.pad(mask, [w_padding, h_padding, w_padding + w_space%2, h_padding + h_space%2])
-    mask = vision_tf.crop(mask, top, left, crop_size, crop_size)
+
+    if mask is not None:
+        mask = vision_tf.pad(mask, [w_padding, h_padding, w_padding + w_space%2, h_padding + h_space%2])
+        mask = vision_tf.crop(mask, top, left, crop_size, crop_size)
    
     if get_transform: ###
         return img, mask, transforms

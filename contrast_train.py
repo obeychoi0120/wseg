@@ -3,13 +3,14 @@ import shutil
 import torch
 import argparse
 from torch.backends import cudnn
+import wandb
 
 from util import pyutils
 
 from module.dataloader import get_dataloader
 from module.model import get_model
 from module.optimizer import get_optimizer
-from module.train import train_cls, train_seam, train_eps, train_contrast, train_seam_ssl, train_eps_ssl, train_contrast_ssl, train_contrast_ssl_union
+from module.train import train_cls, train_seam, train_eps, train_contrast, train_seam_ssl, train_eps_ssl, train_contrast_ssl
 
 cudnn.enabled = True
 torch.backends.cudnn.benchmark = False
@@ -19,7 +20,8 @@ dataset_list = ['voc12', 'coco']
 def get_arguments():
     parser = argparse.ArgumentParser()
     # session
-    parser.add_argument('--session', default='eps', type=str)
+    parser.add_argument('--session', default='wsss', type=str)
+    parser.add_argument('--use_wandb', action='store_true') ### Use wandb Logging
 
     # data
     parser.add_argument("--dataset", default='voc12', choices=dataset_list, type=str)
@@ -112,11 +114,16 @@ def get_arguments():
 
 
 if __name__ == '__main__':
-
-    # get arguments
+    # Get arguments
     args = get_arguments()
 
-    # set log
+    # Set wandb Logger
+    if args.use_wandb:
+        wandb.init(name=args.session, project='WSSS')
+        # wandb.run.id = wandb.run.name
+        # wandb.run.save()
+
+    # Set Python Logger
     args.log_folder = os.path.join('train_log', args.session)
     os.makedirs(args.log_folder, exist_ok=True)
 
@@ -124,30 +131,31 @@ if __name__ == '__main__':
     shutil.copyfile('./contrast_train.py', os.path.join(args.log_folder, 'contrast_train.py'))
     shutil.copyfile('./module/train.py', os.path.join(args.log_folder, 'train.py'))
 
-    # load dataset
-    if args.ssl: ###
-        train_loader, train_ulb_loader, val_loader = get_dataloader(args)
-    else:
-        train_loader, val_loader = get_dataloader(args)
+    # Load dataset (train_ulb_loader=None where args.ssl==False)
+    train_loader, train_ulb_loader, val_loader = get_dataloader(args) ###
 
-    # max step
+    # Max step
     num_data = len(open(args.train_list).read().splitlines())
     if args.max_epoches is None:
         args.max_epoches = int(args.max_iters * args.iter_size // (num_data // args.batch_size))
     max_step = (num_data // args.batch_size) * args.max_epoches
 
-    # load network and its pre-trained model
+    # Load (ImageNet) Pretrained Model
     model = get_model(args)
 
-    # set optimizer
+    # Set optimizer
     optimizer = get_optimizer(args, model, max_step)
     
-    # train
+    # DDP
     model = torch.nn.DataParallel(model).cuda()
     model.train()
     
+    # Arguments
     print(vars(args))
-
+    if args.use_wandb:
+        wandb.config.update(args)
+    
+    # Train
     if args.network_type == 'cls':
         train_cls(train_loader, val_loader, model, optimizer, max_step, args)
     elif args.network_type == 'seam':
@@ -162,11 +170,7 @@ if __name__ == '__main__':
             train_eps(train_loader, val_loader, model, optimizer, max_step, args)
     elif args.network_type == 'contrast':
         if args.ssl:
-            print(args.train_list,args.train_ulb_list)
-            if args.train_list == args.train_ulb_list: # 100% labeled setting
-                train_contrast_ssl_union(train_ulb_loader, val_loader, model, optimizer, max_step, args) ###
-            else:
-                train_contrast_ssl(train_loader, train_ulb_loader, val_loader, model, optimizer, max_step, args) ###
+            train_contrast_ssl(train_loader, train_ulb_loader, val_loader, model, optimizer, max_step, args) ###
         else:
             train_contrast(train_loader, val_loader, model, optimizer, max_step, args)
     else:

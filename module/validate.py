@@ -76,9 +76,9 @@ def validate(model, data_loader, epoch, args):
         precision = torch.tensor(precision).float()
         recall = torch.tensor(recall).float()
         f1 = torch.tensor(f1).float()
-        mean_precision = precision.mean()
-        mean_recall = recall.mean()
-        mean_f1 = f1.mean()
+        mean_precision = precision.mean().item()
+        mean_recall = recall.mean().item()
+        mean_f1 = f1.mean().item()
 
     model.train()
     loss_ = val_loss_meter.pop('loss')

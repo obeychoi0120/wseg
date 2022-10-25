@@ -11,3 +11,4 @@ mxnet
 scikit-image
 scikit-learn
 tqdm
+wandb
