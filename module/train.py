@@ -609,8 +609,8 @@ def train_contrast(train_dataloader, val_dataloader, model, optimizer, max_step,
             if (optimizer.global_step-1) % (max_step // 10) == 0:
                 if val_dataloader is not None:
                     # loss_, mAP, mean_acc, mean_precision, mean_recall, mean_f1, corrects, precision, recall, f1
-                    tb_dict['val/loss'], tb_dict['val/mAP'], tb_dict['val/mean_acc'], tb_dict['val/mean_precision'], \
-                    tb_dict['val/mean_recall'], tb_dict['val/mean_f1'], acc, precision, recall, f1 = validate(model, val_dataloader, iteration, args) ###
+                    print('Validating Model... ')
+                    validate(args, model, val_dataloader, iteration, tag='val') 
 
                 # Save intermediate model
                 model_path = os.path.join(args.log_folder, f'checkpoint_{iteration}.pth')
@@ -1101,7 +1101,7 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
                     ulb_img_id, ulb_img_w, ulb_img_s, ulb_ops = next(ulb_loader_iter)
 
                 # Concat Image lb & ulb ###
-                img_id = torch.cat([img_id, ulb_img_id], dim=0)
+                # img_id = torch.cat([img_id, ulb_img_id], dim=0)
                 img_w = torch.cat([img_w, ulb_img_w], dim=0)
                 img_s = torch.cat([img_s, ulb_img_s], dim=0)
                 # Concat Strong Aug. options ###
