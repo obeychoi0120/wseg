@@ -19,23 +19,25 @@ dataset_list = ['voc12', 'coco']
 
 def get_arguments():
     parser = argparse.ArgumentParser()
-    # session
+    # Session
     parser.add_argument('--session', default='wsss', type=str)
     parser.add_argument('--use_wandb', action='store_true') ### Use wandb Logging
+    parser.add_argument('--log_freq', default=50, type=int)
+    parser.add_argument('--val_times', default=20, type=int)
 
-    # data
+    # Data
     parser.add_argument("--dataset", default='voc12', choices=dataset_list, type=str)
     parser.add_argument('--data_root', required=True, type=str)
     parser.add_argument('--saliency_root', type=str)
     parser.add_argument('--train_list', default='data/voc12/train_aug_id.txt', type=str)
-    parser.add_argument('--val_list', default='data/voc12/val_id.txt', type=str)
+    parser.add_argument('--val_list', default='data/voc12/train_id.txt', type=str)
     parser.add_argument('--data_on_mem', action='store_true') ### Load dataset on RAM(need 20GB additional RAM)
 
     parser.add_argument('--batch_size', default=8, type=int)
     parser.add_argument('--crop_size', default=448, type=int)
     parser.add_argument('--resize_size', default=(448, 768), type=int, nargs='*')
 
-    # iteration & optimizer
+    # Iteration & Optimizer
     parser.add_argument('--iter_size', default=2, type=int)
     parser.add_argument('--max_iters', default=10000, type=int)
     parser.add_argument('--max_epoches', default=None, type=int) # default=15
@@ -44,15 +46,15 @@ def get_arguments():
     parser.add_argument('--num_workers', default=8, type=int)
     parser.add_argument('--wt_dec', default=5e-4, type=float)
 
-    # network
+    # Network
     parser.add_argument('--network', default='network.resnet38_cls', type=str)
     parser.add_argument('--weights', required=True, type=str, default='pretrained/ilsvrc-cls_rna-a1_cls1000_ep-0001.params')
     
-    # hyper-parameters for EPS
+    # Hyperparameters for EPS
     parser.add_argument('--tau', default=0.5, type=float)
     parser.add_argument('--alpha', default=0.5, type=float)
 
-    ### semi-supervised learning ###
+    ### Semi-supervised Learning ###
     parser.add_argument('--ssl', action='store_true')
     parser.add_argument('--ssl_type', nargs='+', default=[3], type=int) # 1: MT, 2: pixel-wise MT, 3: fixmatch
     parser.add_argument("--ulb_dataset", default=None, choices=dataset_list, type=str)
@@ -98,7 +100,7 @@ def get_arguments():
         if args.ulb_saliency_root is None:
             args.ulb_saliency_root = args.saliency_root
 
-    # Network
+    # Network type
     if 'cls' in args.network:
         args.network_type = 'cls'
     elif 'seam' in args.network:
@@ -146,7 +148,7 @@ if __name__ == '__main__':
     # Set optimizer
     optimizer = get_optimizer(args, model, max_step)
     
-    # DDP
+    # DP
     model = torch.nn.DataParallel(model).cuda()
     model.train()
     

@@ -78,15 +78,16 @@ def get_dataloader(args):
             img_id_list_file    = args.val_list,
             img_root            = args.data_root,
             tv_transform        = transforms.Compose([
-                                    transforms.Resize(args.crop_size),
+                                    transforms.Resize((args.crop_size,args.crop_size)),
                                     np.asarray,
                                     Normalize(),
-                                    imutils.CenterCrop(args.crop_size),
+                                    # imutils.CenterCrop(args.crop_size),
                                     imutils.HWC_to_CHW,
                                     torch.from_numpy
             ]))
         
-        val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False,
+        # Currently avaliable batch size 1
+        val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False,
                                 num_workers=args.num_workers, pin_memory=True, drop_last=True)
     except: # coco (no val labels in cls_labels.npy)
         print('No validation label list found. Train without validation dataloader.')

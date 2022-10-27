@@ -1064,11 +1064,10 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
     ### Train Scalars, Histograms, Images ###
     tscalar = {}
     thist = {}
-    timg = {}
+
     timer = pyutils.Timer("Session started: ")
     ### validation logging
-    val_num = 20
-    val_freq = max_step // val_num
+    val_freq = max_step // args.val_times
 
     lb_loader_iter = iter(train_dataloader)
     ulb_loader_iter = iter(train_ulb_dataloader) if train_ulb_dataloader else None ###
@@ -1078,7 +1077,9 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
     #ema_model = deepcopy(model)
     ema = EMA(model, args.ema_m)
     ema.register()
-
+    
+    ### Model Watch (log_freq=val_freq)
+    wandb.watch(model, log_freq=args.log_freq * args.iter_size)
     print(args)
     print('Using Gamma:', gamma)
     for iteration in range(args.max_iters):
@@ -1100,6 +1101,7 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
                     ulb_img_id, ulb_img_w, ulb_img_s, ulb_ops = next(ulb_loader_iter)
 
                 # Concat Image lb & ulb ###
+                img_id = torch.cat([img_id, ulb_img_id], dim=0)
                 img_w = torch.cat([img_w, ulb_img_w], dim=0)
                 img_s = torch.cat([img_s, ulb_img_s], dim=0)
                 # Concat Strong Aug. options ###
@@ -1193,27 +1195,28 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
             ssl_pack = get_ssl_loss(args, iteration, pred_s=pred_s, pred_t=pred_s_t, cam_s=cam_s, cam_t=cam_s_t, feat_s=feat_s, feat_t=None, mask=mask_s)
             loss_ssl = ssl_pack['loss_ssl']
 
-            loss = loss_cls + loss_sal + loss_nce + loss_er + loss_ecr + loss_ssl
-
+            loss = loss_cls + loss_nce + loss_er + loss_ecr + loss_sal + loss_ssl # 
+            
+            # Logging AVGMeter
             avg_meter.add({'loss': loss.item(),
                            'loss_cls': loss_cls.item(),
                            'loss_sal': loss_sal.item(),
                            'loss_nce': loss_nce.item(),
-                           'loss_er': loss_er.item(),
+                           'loss_er' : loss_er.item(),
                            'loss_ecr': loss_ecr.item(),
                            'loss_ssl': loss_ssl.item()})
             if 1 in args.ssl_type:
-                avg_meter.add({'loss_mt': ssl_pack['loss_mt'].item(),
+                avg_meter.add({'loss_mt'      : ssl_pack['loss_mt'].item(),
                                'mt_mask_ratio': ssl_pack['mask_mt'].item()})
             if 2 in args.ssl_type:
-                avg_meter.add({'loss_pmt': ssl_pack['loss_pmt'].item()})
+                avg_meter.add({'loss_pmt'     : ssl_pack['loss_pmt'].item()})
             if 3 in args.ssl_type:
-                avg_meter.add({'loss_pl': ssl_pack['loss_pl'].item(),
-                               'mask_ratio': ssl_pack['mask_pl'].item()})
+                avg_meter.add({'loss_pl'      : ssl_pack['loss_pl'].item(),
+                               'mask_ratio'   : ssl_pack['mask_pl'].item()})
             if 4 in args.ssl_type:
-                avg_meter.add({'loss_con': ssl_pack['loss_con'].item()})
+                avg_meter.add({'loss_con'     : ssl_pack['loss_con'].item()})
             if 5 in args.ssl_type:
-                avg_meter.add({'loss_cdc': ssl_pack['loss_cdc'].item(),
+                avg_meter.add({'loss_cdc'     : ssl_pack['loss_cdc'].item(),
                                'cdc_pos_ratio': ssl_pack['mask_cdc_pos'].item(),
                                'cdc_neg_ratio': ssl_pack['mask_cdc_neg'].item()})
             ###
@@ -1222,36 +1225,9 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
             loss.backward()
             optimizer.step()
             ema.update() ########
-
-            # Validate K times
-            current_step = optimizer.global_step-(max_step % val_freq)
-            if current_step and current_step % val_freq == 0:
-                # Save intermediate model
-                model_path = os.path.join(args.log_folder, f'checkpoint_{iteration}.pth')
-                torch.save(model.module.state_dict(), model_path)
-                print(f'Model {model_path} Saved.')
-
-                # Validation
-                if val_dataloader is not None:
-                    # loss_, mAP, mean_acc, mean_precision, mean_recall, mean_f1, corrects, precision, recall, f1
-                    loss, mAP, acc, precision, recall, f1, raw_acc, raw_precision, raw_recall, raw_f1 = validate(model, val_dataloader, iteration, args) ###
-                    # EMA model
-                    ema.apply_shadow() ###
-                    ema_loss, ema_mAP, ema_acc, ema_precision, ema_recall, ema_f1, ema_raw_acc, ema_raw_precision, ema_raw_recall, ema_raw_f1 \
-                                                                                                      = validate(model, val_dataloader, iteration, args) ###
-                    ema.restore() ###
                     
-                    # Add Val scalars
-                    tscalar.update({'val/loss': loss, 'val/mAP': mAP, 'val/accuracy': acc,
-                                    'val/precision': precision,  'val/recall': recall, 'val/f1': f1,
-                                    'val_ema/loss': ema_loss, 'val_ema/mAP': ema_mAP, 'val_ema/accuracy': ema_acc,
-                                    'val_ema/precision': ema_precision,  'val_ema/recall': ema_recall, 'val_ema/f1': ema_f1})
-                    # Add Val Histograms
-                    thist.update({'val/raw_acc': raw_acc, 'val/raw_precision': raw_precision, 'val/raw_recall': raw_recall, 'val/raw_f1': raw_f1,
-                                  'val_ema/raw_acc': ema_raw_acc, 'val_ema/raw_precision': ema_raw_precision, 'val_ema/raw_recall': ema_raw_recall, 'val_ema/raw_f1': ema_raw_f1})
-
             # Logging
-            if (optimizer.global_step-1) % 50 == 0:
+            if (optimizer.global_step-1) % (args.log_freq * args.iter_size) == 0:
                 timer.update_progress(optimizer.global_step / max_step)
                 tscalar['train/lr'] = optimizer.param_groups[0]['lr']
                 
@@ -1272,11 +1248,31 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
 
                 ### wandb logging Scalars, Histograms, Images ###
                 if args.use_wandb:
-                    wandb.log({'train/'+k: avg_meter.pop(k) for k in avg_meter.get_keys()})
-                    wandb.log({k: v for k, v in tscalar.items()})
-                    wandb.log({k: wandb.Histogram(arr) for k, arr in thist.items()})
-                    wandb.log({k: wandb.Image(img, caption='k') for k, img in timg.items()})
+                    wandb.log({'train/'+k: avg_meter.pop(k) for k in avg_meter.get_keys()}, step=iteration)
+                    wandb.log({k: v for k, v in tscalar.items()}, step=iteration)
+
+                tscalar.clear()
             
+            # Validate K times
+            current_step = optimizer.global_step-(max_step % val_freq)
+            if current_step and current_step % val_freq == 0:
+                # Save intermediate model
+                model_path = os.path.join(args.log_folder, f'checkpoint_{iteration}.pth')
+                torch.save(model.module.state_dict(), model_path)
+                print(f'Model {model_path} Saved.')
+
+                # Validation
+                if val_dataloader is not None:
+                    print('Validating Student Model... ')
+                    validate(args, model, val_dataloader, iteration, tag='val') 
+                    
+                    # ### EMA model ###
+                    # ema.apply_shadow() ###
+                    # print()
+                    # print('Validating Teacher(EMA) Model... ')
+                    # validate(args, model, val_dataloader, iteration, tag='val_ema')
+                    # ema.restore() ###
+
             timer.reset_stage()
 
     torch.save(model.module.state_dict(), os.path.join(args.log_folder, 'checkpoint.pth'))
