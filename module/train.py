@@ -1079,7 +1079,9 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
     ema.register()
     
     ### Model Watch (log_freq=val_freq)
-    wandb.watch(model, log_freq=args.log_freq * args.iter_size)
+    if args.use_wandb:
+        wandb.watch(model, log_freq=args.log_freq * args.iter_size)
+        
     print(args)
     print('Using Gamma:', gamma)
     for iteration in range(args.max_iters):
