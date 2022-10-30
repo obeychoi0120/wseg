@@ -1119,16 +1119,14 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
             img2 = F.interpolate(img_w[:B], size=(128, 128), mode='bilinear', align_corners=True)
             saliency2 = F.interpolate(saliency, size=(128, 128), mode='bilinear', align_corners=True)
 
-            # Forward
-            pred_w, cam_w, pred_rv_w, cam_rv_w, feat_w = model(img_w) # Whole Images (for SSL)
-            # only labeled
-            pred1, cam1, pred_rv1, cam_rv1, feat1 = pred_w[:B], cam_w[:B], pred_rv_w[:B], cam_rv_w[:B], feat_w[:B]
+            # Forward (only labeled)
+            pred1, cam1, pred_rv1, cam_rv1, feat1 = model(img_w[:B]) # Whole Images (for SSL)
             pred2, cam2, pred_rv2, cam_rv2, feat2 = model(img2)
             
             ### Teacher Model
             ema.apply_shadow()
             with torch.no_grad():
-                pred_w, cam_w, pred_rv_w, cam_rv_w, feat_w = pred_w.detach(), cam_w.detach(), pred_rv_w.detach(), cam_rv_w.detach(), feat_w.detach()
+                pred_w, cam_w, pred_rv_w, cam_rv_w, feat_w = model(img_w) # Whole Images (for SSL)
                 ### Apply strong transforms to pseudo-label(pixelwise matching with ulb_cam2) ###
                 if args.ulb_aug_type == 'strong':
                     cam_s_t = apply_strong_tr(cam_w, ops, strong_transforms=strong_transforms)

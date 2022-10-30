@@ -14,8 +14,7 @@ BASE_WEIGHT=${WEIGHT_ROOT}/ilsvrc-cls_rna-a1_cls1000_ep-0001.params
 
 
 # train classification network with Contrastive Learning
-#CUDA_VISIBLE_DEVICES=${GPU} python3 contrast_train.py \
-    --ssl               \
+CUDA_VISIBLE_DEVICES=${GPU} python3 contrast_train.py \
     --use_wandb         \
     --session           ${SESSION} \
     --network           network.${BACKBONE} \
