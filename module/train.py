@@ -1058,20 +1058,13 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
         log_keys.append('ratio_cdc_pos')
         log_keys.append('ratio_cdc_neg')
     avg_meter = pyutils.AverageMeter(*log_keys) ###
-    
-    # tb_writer = SummaryWriter(args.log_folder) ###
-    ### Train Scalars, Histograms, Images ###
-    tscalar = {}
-    thist = {}
-
     timer = pyutils.Timer("Session started: ")
-    ### validation logging
-    val_freq = max_step // args.val_times
 
+    # DataLoader
     lb_loader_iter = iter(train_dataloader)
     ulb_loader_iter = iter(train_ulb_dataloader) if train_ulb_dataloader else None ###
     strong_transforms = tensor_augment_list() ###
-    gamma = 0.10
+    
     # EMA
     #ema_model = deepcopy(model)
     ema = EMA(model, args.ema_m)
@@ -1080,7 +1073,12 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
     ### Model Watch (log_freq=val_freq)
     if args.use_wandb:
         wandb.watch(model, log_freq=args.log_freq * args.iter_size)
-        
+    ### Train Scalars, Histograms, Images ###
+    tscalar = {}
+    ### validation logging
+    val_freq = max_step // args.val_times
+
+    gamma = 0.10
     print(args)
     print('Using Gamma:', gamma)
     for iteration in range(args.max_iters):
@@ -1146,13 +1144,11 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
                     pred_s_t = F.avg_pool2d(cam_s_t, kernel_size=(cam_s_t.size(-2), cam_s_t.size(-1)), padding=0)
                     pred_s_t = pred_s_t.view(pred_s_t.size(0), -1)
                 else:
-                    pred_s_t = None
+                    pred_s_t = pred_w
                 ### Make masks for pixel-wise MT ###
+                mask_s = torch.ones_like(cam_w)
                 if 2 in args.ssl_type or 4 in args.ssl_type :
-                    mask = torch.ones_like(cam_w)
-                    mask_s = apply_strong_tr(mask, ops, strong_transforms=strong_transforms)
-                else:
-                    mask_s = None
+                    mask_s = apply_strong_tr(mask_s, ops, strong_transforms=strong_transforms)
 
             ema.restore()
             ###
@@ -1164,36 +1160,37 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
                 pred_s, cam_s, _, _, feat_low_s, feat_s = model(img_s, require_feats_high=True)  ###
 
 
-            # Classification loss 1
+            # Classification & EPS loss 1
             loss_cls = F.multilabel_soft_margin_loss(pred1[:, :-1], label)
             loss_sal, fg_map, bg_map, sal_pred = get_eps_loss(cam1, saliency, label, args.tau, args.alpha, intermediate=True, num_class=args.num_sample)
             loss_sal_rv, _, _, _ = get_eps_loss(cam_rv1, saliency, label, args.tau, args.alpha, intermediate=True, num_class=args.num_sample)
 
-            # Classification loss 2
+            # Classification & EPS loss 2
             loss_cls2 = F.multilabel_soft_margin_loss(pred2[:, :-1], label)
-            # loss_sal2, fg_map2, bg_map2, sal_pred2 = get_eps_loss(cam2, saliency2, label, args.tau, args.alpha, intermediate=True, num_class=args.num_sample)
+            loss_sal2, fg_map2, bg_map2, sal_pred2 = get_eps_loss(cam2, saliency2, label, args.tau, args.alpha, intermediate=True, num_class=args.num_sample)
             loss_sal_rv2, _, _, _ = get_eps_loss(cam_rv2, saliency2, label, args.tau, args.alpha, intermediate=True, num_class=args.num_sample)
 
+            # Classification & EPS loss (rv)
             bg_score = torch.ones((B, 1)).cuda()
             label_append_bg = torch.cat((label, bg_score), dim=1).unsqueeze(2).unsqueeze(3)  # (N, 21, 1, 1)
             loss_cls_rv1 = adaptive_min_pooling_loss((cam_rv1 * label_append_bg)[:, :-1, :, :])
             loss_cls_rv2 = adaptive_min_pooling_loss((cam_rv2 * label_append_bg)[:, :-1, :, :])
+            
+            # Classification & EPS loss
+            loss_cls = (loss_cls + loss_cls2) / 2. + (loss_cls_rv1 + loss_cls_rv2) / 2.
+            loss_sal = (loss_sal + loss_sal2) / 2. + (loss_sal_rv + loss_sal_rv2) / 2.
 
-            # Final Losses
+            # SEAM Losses
             loss_er, loss_ecr = get_er_loss(cam1, cam2, cam_rv1, cam_rv2, label_append_bg)
 
+            # PPC loss
             loss_nce = get_contrast_loss(cam_rv1, cam_rv2, feat1, feat2, label, gamma=gamma, bg_thres=0.10)
-
-            # loss cls = cam cls loss + cam_cv cls loss
-            loss_cls = (loss_cls + loss_cls2) / 2. + (loss_cls_rv1 + loss_cls_rv2) / 2.
-
-            loss_sal =  (loss_sal_rv + loss_sal_rv2) #/ 2. (loss_sal + loss_sal2) / 2. +
 
             ###########           Semi-supervsied Learning Loss           ###########
             ssl_pack = get_ssl_loss(args, iteration, pred_s=pred_s, pred_t=pred_s_t, cam_s=cam_s, cam_t=cam_s_t, feat_s=feat_s, feat_t=None, mask=mask_s)
             loss_ssl = ssl_pack['loss_ssl']
 
-            loss = loss_cls + loss_nce + loss_er + loss_ecr + loss_ssl #loss_sal 
+            loss = loss_cls + loss_er + loss_ecr + loss_sal + loss_nce + loss_ssl
             
             # Logging AVGMeter
             avg_meter.add({'loss': loss.item(),
