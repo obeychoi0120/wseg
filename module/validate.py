@@ -183,9 +183,10 @@ def validate(args, model, data_loader, iter, tag='val'):
         print( 'Recall (%)   :', ' '.join([f'{v*100:0>4.1f}' for v in iou]))                                              
         
         # Wandb logging
-        wandb.log({tag+'/'+k: v for k, v in log_scalar.items()}, step=iter)
-        wandb.log({tag+'/'+k: wandb.Histogram(v) for k, v in log_hist.items()}, step=iter)
-        wandb.log({'img/'+k: img for k, img in timg.items()}, step=iter)
+        if args.use_wandb:
+            wandb.log({tag+'/'+k: v for k, v in log_scalar.items()}, step=iter)
+            wandb.log({tag+'/'+k: wandb.Histogram(v) for k, v in log_hist.items()}, step=iter)
+            wandb.log({'img/'+k: img for k, img in timg.items()}, step=iter)
 
     model.train()
 

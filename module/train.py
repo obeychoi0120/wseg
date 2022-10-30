@@ -1078,7 +1078,9 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
     ema.register()
     
     ### Model Watch (log_freq=val_freq)
-    wandb.watch(model, log_freq=args.log_freq * args.iter_size)
+    if args.use_wandb:
+        wandb.watch(model, log_freq=args.log_freq * args.iter_size)
+        
     print(args)
     print('Using Gamma:', gamma)
     for iteration in range(args.max_iters):
@@ -1100,7 +1102,7 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
                     ulb_img_id, ulb_img_w, ulb_img_s, ulb_ops = next(ulb_loader_iter)
 
                 # Concat Image lb & ulb ###
-                img_id = torch.cat([img_id, ulb_img_id], dim=0)
+                # img_id = torch.cat([img_id, ulb_img_id], dim=0)
                 img_w = torch.cat([img_w, ulb_img_w], dim=0)
                 img_s = torch.cat([img_s, ulb_img_s], dim=0)
                 # Concat Strong Aug. options ###
