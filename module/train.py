@@ -573,7 +573,7 @@ def train_contrast(train_dataloader, val_dataloader, model, optimizer, max_step,
 
             loss_sal = (loss_sal + loss_sal2) / 2. + (loss_sal_rv + loss_sal_rv2) / 2.
 
-            loss = loss_cls + loss_sal + loss_nce + loss_er + loss_ecr
+            loss = loss_cls + loss_sal + loss_nce #+ loss_er + loss_ecr
 
             avg_meter.add({'loss': loss.item(),
                            'loss_cls': loss_cls.item(),
@@ -608,7 +608,6 @@ def train_contrast(train_dataloader, val_dataloader, model, optimizer, max_step,
             # Validate 10 times
             if (optimizer.global_step-1) % (max_step // 10) == 0:
                 if val_dataloader is not None:
-                    # loss_, mAP, mean_acc, mean_precision, mean_recall, mean_f1, corrects, precision, recall, f1
                     print('Validating Model... ')
                     validate(args, model, val_dataloader, iteration, tag='val') 
 
@@ -1196,7 +1195,7 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
             ssl_pack = get_ssl_loss(args, iteration, pred_s=pred_s, pred_t=pred_s_t, cam_s=cam_s, cam_t=cam_s_t, feat_s=feat_s, feat_t=None, mask=mask_s)
             loss_ssl = ssl_pack['loss_ssl']
 
-            loss = loss_cls + loss_nce + loss_er + loss_ecr + loss_sal + loss_ssl # 
+            loss = loss_cls + loss_nce + loss_er + loss_ecr + loss_ssl #loss_sal 
             
             # Logging AVGMeter
             avg_meter.add({'loss': loss.item(),
