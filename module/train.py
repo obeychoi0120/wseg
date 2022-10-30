@@ -1129,6 +1129,7 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
             ### Teacher Model
             ema.apply_shadow()
             with torch.no_grad():
+                pred_w, cam_w, pred_rv_w, cam_rv_w, feat_w = pred_w.detach(), cam_w.detach(), pred_rv_w.detach(), cam_rv_w.detach(), feat_w.detach()
                 ### Apply strong transforms to pseudo-label(pixelwise matching with ulb_cam2) ###
                 if args.ulb_aug_type == 'strong':
                     cam_s_t = apply_strong_tr(cam_w, ops, strong_transforms=strong_transforms)
@@ -1173,9 +1174,7 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
 
             # Classification loss 2
             loss_cls2 = F.multilabel_soft_margin_loss(pred2[:, :-1], label)
-
-            loss_sal2, fg_map2, bg_map2, sal_pred2 = get_eps_loss(cam2, saliency2, label, args.tau, args.alpha, intermediate=True, num_class=args.num_sample)
-
+            # loss_sal2, fg_map2, bg_map2, sal_pred2 = get_eps_loss(cam2, saliency2, label, args.tau, args.alpha, intermediate=True, num_class=args.num_sample)
             loss_sal_rv2, _, _, _ = get_eps_loss(cam_rv2, saliency2, label, args.tau, args.alpha, intermediate=True, num_class=args.num_sample)
 
             bg_score = torch.ones((B, 1)).cuda()
@@ -1191,7 +1190,7 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
             # loss cls = cam cls loss + cam_cv cls loss
             loss_cls = (loss_cls + loss_cls2) / 2. + (loss_cls_rv1 + loss_cls_rv2) / 2.
 
-            loss_sal = (loss_sal + loss_sal2) / 2. + (loss_sal_rv + loss_sal_rv2) / 2.
+            loss_sal =  (loss_sal_rv + loss_sal_rv2) #/ 2. (loss_sal + loss_sal2) / 2. +
 
             ###########           Semi-supervsied Learning Loss           ###########
             ssl_pack = get_ssl_loss(args, iteration, pred_s=pred_s, pred_t=pred_s_t, cam_s=cam_s, cam_t=cam_s_t, feat_s=feat_s, feat_t=None, mask=mask_s)
