@@ -58,3 +58,5 @@ if __name__ == '__main__':
     df = pd.read_csv(args.datalist, names=['filename'])
     name_list = df['filename'].values
     do_save(args.crf_pred, args.label_save_dir, name_list, 8, args.num_sample)
+
+    print(args.label_save_dir)
