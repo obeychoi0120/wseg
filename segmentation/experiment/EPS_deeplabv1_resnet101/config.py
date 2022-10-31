@@ -10,7 +10,7 @@ import time
 
 config_dict = {
 		'EXP_NAME': 'EPS_deeplabv1_resnet101',
-		'GPUS': 1,
+		'GPUS': 4,
 
 		'DATA_NAME': 'VOCDataset',
 		'DATA_YEAR': 2012,
@@ -59,6 +59,7 @@ config_dict['TRAIN_CKPT'] = None
 config_dict['LOG_DIR'] = os.path.join(config_dict['ROOT_DIR'],'log',config_dict['EXP_NAME'])
 
 # for test, must be updated
-config_dict['TEST_CKPT'] = os.path.join(config_dict['ROOT_DIR'], 'your_ckpt.pth')
+config_dict['TEST_CKPT'] = os.path.join(config_dict['MODEL_SAVE_DIR'], 'deeplabv2_resnet101_VOCDataset_itr20000_all.pth') ###
 
 sys.path.insert(0, os.path.join(config_dict['ROOT_DIR'], 'lib'))
+print(config_dict)

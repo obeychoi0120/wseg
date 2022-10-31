@@ -15,7 +15,7 @@ config_dict = {
 		'DATA_NAME': 'VOCDataset',
 		'DATA_YEAR': 2012,
 		'DATA_PERIOD': 'train',
-		'DATA_LIST': '../../data/voc12/train_aug_id.txt',
+		'DATA_LIST': '../../../data/voc12/train_aug_id.txt',
 		'DATA_AUG': True,
 		'DATA_WORKERS': 4,
 		'DATA_MEAN': [0.485, 0.456, 0.406],
@@ -68,6 +68,7 @@ config_dict['TRAIN_CKPT'] = None
 config_dict['LOG_DIR'] = os.path.join(config_dict['ROOT_DIR'],'log',config_dict['EXP_NAME'])
 
 # for test, must be updated
-config_dict['TEST_CKPT'] = os.path.join(config_dict['ROOT_DIR'], 'your_ckpt.pth')
+config_dict['TEST_CKPT'] = os.path.join(config_dict['MODEL_SAVE_DIR'], 'deeplabv2_resnet101_VOCDataset_itr20000_all.pth') ###
 
 sys.path.insert(0, os.path.join(config_dict['ROOT_DIR'], 'lib'))
+print(config_dict)
