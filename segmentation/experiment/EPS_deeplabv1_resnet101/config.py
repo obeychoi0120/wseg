@@ -10,7 +10,7 @@ import time
 
 config_dict = {
 		'EXP_NAME': 'EPS_deeplabv1_resnet101',
-		'GPUS': 4,
+		'GPUS': 3,
 
 		'DATA_NAME': 'VOCDataset',
 		'DATA_YEAR': 2012,
@@ -24,7 +24,7 @@ config_dict = {
 		'DATA_RANDOM_S': 10,
 		'DATA_RANDOM_V': 10,
 		'DATA_RANDOMFLIP': 0.5,
-		'DATA_PSEUDO_GT': 'your_pseudo_label_dir',
+		'DATA_PSEUDO_GT': '../../../train_log/ppc/result/crf_seg/',
 
 		'MODEL_NAME': 'deeplabv1',
 		'MODEL_BACKBONE': 'resnet101',
@@ -46,7 +46,8 @@ config_dict = {
 		'TRAIN_MINEPOCH': 0,
 		'TRAIN_ITERATION': 20000,
 		'TRAIN_TBLOG': True,
-
+		
+		'TEST_PERIOD': 'val', # 'test'
 		'TEST_MULTISCALE': [0.5, 0.75, 1.0, 1.25, 1.5, 1.75],
 		'TEST_FLIP': True,
 		'TEST_CRF': True,
@@ -59,7 +60,7 @@ config_dict['TRAIN_CKPT'] = None
 config_dict['LOG_DIR'] = os.path.join(config_dict['ROOT_DIR'],'log',config_dict['EXP_NAME'])
 
 # for test, must be updated
-config_dict['TEST_CKPT'] = os.path.join(config_dict['MODEL_SAVE_DIR'], 'deeplabv2_resnet101_VOCDataset_itr20000_all.pth') ###
+config_dict['TEST_CKPT'] = os.path.join(config_dict['MODEL_SAVE_DIR'], 'deeplabv1_resnet101_VOCDataset_itr20000_all.pth') ###
 
 sys.path.insert(0, os.path.join(config_dict['ROOT_DIR'], 'lib'))
 print(config_dict)
