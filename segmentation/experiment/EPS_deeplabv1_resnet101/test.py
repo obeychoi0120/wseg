@@ -25,7 +25,7 @@ from torch.utils.data import DataLoader
 from utils.configuration import Configuration
 from utils.finalprocess import writelog
 from utils.imutils import img_denorm
-from utils.DenseCRF import dense_crf, dense_crf_from_deeplabv2
+from utils.DenseCRF import dense_crf #, dense_crf_from_deeplabv2
 from utils.test_utils import single_gpu_test
 from utils.imutils import onehot
 
@@ -39,8 +39,7 @@ def ClassLogSoftMax(f, category):
 	return softmax, logsoftmax
 
 def test_net():
-	# period = 'val'
-	period = 'test'
+	period = cfg.TEST_PERIOD
 	dataset = generate_dataset(cfg, period=period, transform='none')
 	def worker_init_fn(worker_id):
 		np.random.seed(1 + worker_id)
@@ -97,8 +96,8 @@ def test_net():
 			prob = prob_seg.cpu().numpy()
 			img_batched = img_denorm(sample['image'][0].cpu().numpy()).astype(np.uint8)
 			# TODO: crf更改
-			# prob = dense_crf(prob, img_batched, n_classes=cfg.MODEL_NUM_CLASSES, n_iters=1)
-			prob = dense_crf_from_deeplabv2(prob, img_batched)
+			prob = dense_crf(prob, img_batched, n_classes=cfg.MODEL_NUM_CLASSES, n_iters=1)
+			#prob = dense_crf_from_deeplabv2(prob, img_batched)
 			prob_seg = torch.from_numpy(prob.astype(np.float32))
 
 		result = torch.argmax(prob_seg, dim=0, keepdim=False).cpu().numpy()
