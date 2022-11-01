@@ -10,11 +10,12 @@ import random
 import numpy as np
 from copy import deepcopy
 
-from eps import get_eps_loss
+
 from util import pyutils
 from data.augmentation.randaugment import tensor_augment_list
 
 from module.validate import validate
+from module.eps import get_eps_loss
 from module.ssl import get_ssl_loss, EMA, consistency_loss, apply_strong_tr, cutmix, class_discriminative_contrastive_loss, NCESoftmaxLoss, transform_cam, consistency_cam_loss
 
 
@@ -1106,7 +1107,7 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
                     ulb_img_id, ulb_img_w, ulb_img_s, ulb_ops = next(ulb_loader_iter)
 
                 # Concat Image lb & ulb ###
-                # img_id = torch.cat([img_id, ulb_img_id], dim=0)
+                img_id = img_id + ulb_img_id
                 img_w = torch.cat([img_w, ulb_img_w], dim=0)
                 img_s = torch.cat([img_s, ulb_img_s], dim=0)
                 # Concat Strong Aug. options ###
@@ -1131,6 +1132,9 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
             ema.apply_shadow()
             with torch.no_grad():
                 pred_w, cam_w, pred_rv_w, cam_rv_w, feat_w = model(img_w) # Whole Images (for SSL)
+                # Make CAM (use label)
+                #
+
                 ### Apply strong transforms to pseudo-label(pixelwise matching with ulb_cam2) ###
                 if args.ulb_aug_type == 'strong':
                     cam_s_t = apply_strong_tr(cam_w, ops, strong_transforms=strong_transforms)
