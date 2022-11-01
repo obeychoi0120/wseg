@@ -452,9 +452,16 @@ def train_seam(train_dataloader, val_dataloader, model, optimizer, max_step, arg
 
 def train_eps(train_dataloader, val_dataloader, model, optimizer, max_step, args):
     avg_meter = pyutils.AverageMeter('loss', 'loss_cls', 'loss_sal')
-    tb_writer = SummaryWriter(args.log_folder)
     timer = pyutils.Timer("Session started: ")
+    # DataLoader
     loader_iter = iter(train_dataloader)
+
+    # Wandb logging
+    if args.use_wandb:
+        wandb.watch(model, log_freq=args.log_freq * args.iter_size)
+    tscalar = {}
+    val_freq = max_step // args.val_times ### validation logging
+    # Iter
     for iteration in range(args.max_iters):
         for _ in range(args.iter_size):
             try:
@@ -487,38 +494,37 @@ def train_eps(train_dataloader, val_dataloader, model, optimizer, max_step, args
             loss.backward()
             optimizer.step()
 
-            # tblog
-            tb_dict = {}
-            for k in avg_meter.get_keys():
-                tb_dict['train/' + k] = avg_meter.pop(k)
-            tb_dict['train/lr'] = optimizer.param_groups[0]['lr']
-
-            if (optimizer.global_step-1) % 50 == 0:
+            # Logging
+            if (optimizer.global_step-1) % (args.log_freq * args.iter_size) == 0:
                 timer.update_progress(optimizer.global_step / max_step)
+                tscalar['train/lr'] = optimizer.param_groups[0]['lr']
 
                 print('Iter:%5d/%5d' % (iteration, args.max_iters),
-                      'Loss_Cls:%.4f' % (tb_dict['train/loss_cls']),
-                      'Loss_Sal:%.4f' % (tb_dict['train/loss_sal']),
+                      'Loss_Cls:%.4f' % (avg_meter.get('loss_cls')),
+                      'Loss_Sal:%.4f' % (avg_meter.get('loss_sal')),
                       'imps:%.1f' % ((iteration+1) * args.batch_size / timer.get_stage_elapsed()),
                       'Fin:%s' % (timer.str_est_finish()),
-                      'lr: %.4f' % (optimizer.param_groups[0]['lr']), flush=True)
+                      'lr: %.4f' % (tscalar['train/lr']), flush=True)
+                
+                ### wandb logging Scalars, Histograms, Images ###
+                if args.use_wandb:
+                    wandb.log({'train/'+k: avg_meter.pop(k) for k in avg_meter.get_keys()}, step=iteration)
+                    wandb.log({k: v for k, v in tscalar.items()}, step=iteration)
 
-            # Validate 10 times
-            if (optimizer.global_step-1) % (max_step // 10) == 0:
-                if val_dataloader is not None:
-                    # loss_, mAP, mean_acc, mean_precision, mean_recall, mean_f1, corrects, precision, recall, f1
-                    tb_dict['val/loss'], tb_dict['val/mAP'], tb_dict['val/mean_acc'], tb_dict['val/mean_precision'], \
-                    tb_dict['val/mean_recall'], tb_dict['val/mean_f1'], acc, precision, recall, f1 = validate(model, val_dataloader, iteration, args) ###
-
+            # Validate K times
+            current_step = optimizer.global_step-(max_step % val_freq)
+            if current_step and current_step % val_freq == 0:
                 # Save intermediate model
                 model_path = os.path.join(args.log_folder, f'checkpoint_{iteration}.pth')
                 torch.save(model.module.state_dict(), model_path)
                 print(f'Model {model_path} Saved.')
 
-            # tblog update
-            for k, value in tb_dict.items():
-                tb_writer.add_scalar(k, value, iteration)
-            timer.reset_stage()
+                # Validation
+                if val_dataloader is not None:
+                    print('Validating Student Model... ')
+                    validate(args, model, val_dataloader, iteration, tag='val') 
+
+            
     torch.save(model.module.state_dict(), os.path.join(args.log_folder, 'checkpoint.pth'))
 
 
