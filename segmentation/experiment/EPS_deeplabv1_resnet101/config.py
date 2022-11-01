@@ -61,7 +61,7 @@ config_dict['TRAIN_CKPT'] = None
 config_dict['LOG_DIR'] = os.path.join(config_dict['ROOT_DIR'],'log',config_dict['EXP_NAME'])
 
 # for test, must be updated
-config_dict['TEST_CKPT'] = os.path.join(config_dict['MODEL_SAVE_DIR'], 'deeplabv1_resnet101_VOCDataset_itr20000_all.pth') ###
+config_dict['TEST_CKPT'] = os.path.join(config_dict['MODEL_SAVE_DIR'], 'deeplabv1_resnet101_VOCDataset_all.pth') ###
 
 sys.path.insert(0, os.path.join(config_dict['ROOT_DIR'], 'lib'))
 print(config_dict)
