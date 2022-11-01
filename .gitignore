@@ -8,3 +8,6 @@ wandb/*
 pretrained/*
 *.pth
 *.params
+
+segmentation/log
+segmentation/data
