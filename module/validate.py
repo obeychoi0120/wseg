@@ -112,7 +112,7 @@ def validate(args, model, data_loader, iter, tag='val'):
     if 'cls' in args.network:
         idx_cam = 0
     elif 'seam' in args.network:
-        idx_cam = 2
+        idx_cam = 3
     elif 'eps' in args.network or 'contrast' in args.network:
         idx_cam = 1
     else:

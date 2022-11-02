@@ -6,6 +6,7 @@ from torchvision.transforms import functional as tvf
 import numpy as np
 from PIL import Image
 
+
 ###########           Semi-supervsied Learning           ###########
 def get_ssl_loss(args, iteration, pred_s=None, pred_t=None, cam_s=None, cam_t=None, feat_s=None, feat_t=None, mask=None):
     losses = {'loss_ssl': 0}
