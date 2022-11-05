@@ -11,3 +11,4 @@ pretrained/*
 
 segmentation/log
 segmentation/data
+*.png

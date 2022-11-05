@@ -108,15 +108,15 @@ def validate(args, model, data_loader, iter, tag='val'):
     timg = {}
     idx2class = get_categories(args.num_sample, get_dict=True)
 
-    # Network type
-    if 'cls' in args.network:
-        idx_cam = 0
-    elif 'seam' in args.network:
-        idx_cam = 3
-    elif 'eps' in args.network or 'contrast' in args.network:
-        idx_cam = 1
-    else:
-        raise Exception('No appropriate model type')
+    # # Network type
+    # if 'cls' in args.network:
+    #     idx_cam = 0
+    # elif 'seam' in args.network:
+    #     idx_cam = 3
+    # elif 'eps' in args.network or 'contrast' in args.network:
+    #     idx_cam = 1
+    # else:
+    #     raise Exception('No appropriate model type')
 
     gt_dataset = VOCSemanticSegmentationDataset(split='train', data_dir=args.data_root+'/../') # Temporary 
     labels = [gt_dataset.get_example_by_keys(i, (1,))[0] for i in range(len(gt_dataset))]
@@ -125,27 +125,38 @@ def validate(args, model, data_loader, iter, tag='val'):
 
     with torch.no_grad():
         preds = []
+        cams = []
+        uncrts = []
         for i, (img_id, img, label) in tqdm(enumerate(data_loader)):
-
             img = img.cuda()
-            label = label.cuda(non_blocking=True).unsqueeze(-1).unsqueeze(-1)
-            label = F.pad(label, (0, 0, 0, 0, 1, 0), 'constant', 1.0)
+            label = label.cuda(non_blocking=True)[0,:,None,None]
 
-            pack = model(img)
-            cam = pack[idx_cam]
+            logit = model.module.forward_cam(img)
+            # logit = pack[idx_cam]
 
             # Available only batch size 1
-            cam = F.interpolate(cam, labels[i].shape[-2:], mode='bilinear')
-            # cam_norm = (F.adaptive_max_pool2d(cam, (1, 1)) + 1e-5)
-            # cam = cam / cam_norm
-            pred = torch.argmax(cam, 1)
+            logit = F.softmax(logit, dim=1)
+            logit = F.interpolate(logit, labels[i].shape[-2:], mode='bilinear', align_corners=False)
+            # logit_norm = (F.adaptive_max_pool2d(logit, (1, 1)) + 1e-5)
+            # logit /= logit_norm
+            
+            cam = logit.clone()
+            cam[:, :-1] *= label
+
+            max_probs, pred = torch.max(logit, dim=1)
+            _, cam = torch.max(cam, dim=1)
+
             # background(20 -> 0)
             pred += 1
             pred[pred==args.num_sample] = 0
             preds.append(pred[0].cpu().numpy().copy())
+            cam += 1
+            cam[cam==args.num_sample] = 0
+            cams.append(cam[0].cpu().numpy().copy())
+            uncrts.append(max_probs[0].lt(args.p_cutoff).cpu().numpy())
 
         # Calcaulate Metrics
-        confusion = calc_semantic_segmentation_confusion(preds, labels)
+        confusion = calc_semantic_segmentation_confusion(cams, labels)
         gtj = confusion.sum(axis=1)
         resj = confusion.sum(axis=0)
         gtjresj = np.diag(confusion)
@@ -164,12 +175,18 @@ def validate(args, model, data_loader, iter, tag='val'):
                       'accuracy': acc}
         ### Logging Images
         N_val = 30
-        for i, (pred, (img, _)) in enumerate(zip(preds[:N_val], gt_dataset)):
+        for i, (cam, pred, uncrt, (img, _)) in enumerate(zip(cams[:N_val], preds[:N_val], uncrts[:N_val], gt_dataset)):
             timg[gt_dataset.ids[i]] = wandb.Image(np.transpose(img, axes=(1,2,0)),
-                                                  masks={'prediction':{
+                                                  masks={'CAM': {
+                                                            'mask_data': cam,
+                                                            'class_labels': idx2class},
+                                                         'Prediction': {
                                                             'mask_data': pred,
                                                             'class_labels': idx2class},
-                                                         'ground_truth': {
+                                                         'Uncertainty': {
+                                                            'mask_data': uncrt,
+                                                            'class_labels': {0: 'certain', 1: 'uncertain'}},
+                                                         'Ground_truth': {
                                                             'mask_data': np.where(labels[i]==-1, 255, labels[i]),
                                                             'class_labels': idx2class}})
         

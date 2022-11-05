@@ -132,6 +132,7 @@ def predict_cam(model, image, label, gpu, args):
                     label = None
 
             if args.network_type == 'cls':
+                cam = F.softmax(cam, dim=1)
                 cam = F.interpolate(cam, original_image_size, mode='bilinear', align_corners=False)[0]
                 cam = cam.cpu().numpy() * label.reshape(args.num_sample-1, 1, 1)
 
@@ -152,15 +153,14 @@ def predict_cam(model, image, label, gpu, args):
                 cam = F.interpolate(cam, original_image_size, mode='bilinear', align_corners=False)[0]
 
                 cam_fg = cam[:-1]
-                cam_bg = cam[-1:]
-
+                # cam_bg = cam[-1:]
                 cam_fg = cam_fg.cpu().numpy() * label.reshape(args.num_sample-1, 1, 1)
-                cam_bg = cam_bg.cpu().numpy()
+                # cam_bg = cam_bg.cpu().numpy()
 
                 if i % 2 == 1:
                     cam_fg = np.flip(cam_fg, axis=-1)
-                    cam_bg = np.flip(cam_bg, axis=-1)
-                cam_list.append((cam_fg, cam_bg))
+                    # cam_bg = np.flip(cam_bg, axis=-1)
+                cam_list.append(cam_fg) #((cam_fg, cam_bg))
 
             else:
                 raise Exception('No appropriate model type')

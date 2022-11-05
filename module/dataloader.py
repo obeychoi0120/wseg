@@ -78,7 +78,7 @@ def get_dataloader(args):
             img_id_list_file    = args.val_list,
             img_root            = args.data_root,
             tv_transform        = transforms.Compose([
-                                    transforms.Resize((args.crop_size,args.crop_size)),
+                                    # transforms.Resize((args.crop_size,args.crop_size)),
                                     np.asarray,
                                     Normalize(),
                                     # imutils.CenterCrop(args.crop_size),
