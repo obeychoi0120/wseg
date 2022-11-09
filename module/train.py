@@ -620,7 +620,7 @@ def train_eps_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, model,
             ema.apply_shadow()
             with torch.no_grad():
                 ulb_pred1, ulb_cam1 = model(img_w)  ###
-                ulb_cam1[:,:-1] = label[:,:,None,None]
+                ulb_cam1[:,:-1] *= label[:,:,None,None]
 
                 ### Apply strong transforms to pseudo-label(pixelwise matching with ulb_cam2) ###
                 if args.ulb_aug_type == 'strong':
