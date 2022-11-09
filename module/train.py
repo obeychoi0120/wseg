@@ -421,7 +421,7 @@ def train_seam_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, model
             ### Teacher (for ulb)
             ema.apply_shadow()
             with torch.no_grad():
-                pred_w, cam_w, pred_rv_w, cam_rv_w = model(img_w)  ###
+                pred_w, _, pred_rv_w, cam_w = model(img_w)  ###
                 # Make CAM (use label)
                 cam_w[:,:-1] = label[:,:,None,None]
 
@@ -452,7 +452,7 @@ def train_seam_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, model
             ###
 
             ### Student (for ulb)
-            pred_s, cam_s, pred_rv_s, cam_rv_s = model(img_s) ###
+            pred_s, _, pred_rv_s, cam_s = model(img_s) ###
 
             # Classification loss
             loss_cls = F.multilabel_soft_margin_loss(pred1[:, :-1], label)
