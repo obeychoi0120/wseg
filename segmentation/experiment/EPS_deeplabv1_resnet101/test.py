@@ -25,7 +25,7 @@ from torch.utils.data import DataLoader
 from utils.configuration import Configuration
 from utils.finalprocess import writelog
 from utils.imutils import img_denorm
-from utils.DenseCRF import dense_crf #, dense_crf_from_deeplabv2
+from utils.DenseCRF import dense_crf, pro_crf, DenseCRF #, dense_crf_from_deeplabv2
 from utils.test_utils import single_gpu_test
 from utils.imutils import onehot
 
@@ -92,12 +92,34 @@ def test_net():
 		prob_seg = F.softmax(torch.mean(prob_seg, dim=0, keepdim=True),dim=1)[0]
 		
 
+		# if cfg.TEST_CRF:
+		# 	prob = prob_seg.cpu().numpy()
+		# 	img_batched = img_denorm(sample['image'][0].cpu().numpy()).astype(np.uint8)
+		# 	# TODO: crf更改
+		# 	prob = dense_crf(prob, img_batched, n_classes=cfg.MODEL_NUM_CLASSES, n_iters=10)
+		# 	#prob = pro_crf(prob, img_batched, itr=1)
+		# 	prob_seg = torch.from_numpy(prob.astype(np.float32))
+
+		# result = torch.argmax(prob_seg, dim=0, keepdim=False).cpu().numpy()
+		# return result
+
 		if cfg.TEST_CRF:
-			prob = prob_seg.cpu().numpy()
-			img_batched = img_denorm(sample['image'][0].cpu().numpy()).astype(np.uint8)
+
+			prob = prob_seg.cpu().numpy() # [21, H, W]
+			img_batched = img_denorm(sample['image'][0].cpu().numpy()).astype(np.uint8)  # [3, H, W]
 			# TODO: crf更改
-			prob = dense_crf(prob, img_batched, n_classes=cfg.MODEL_NUM_CLASSES, n_iters=1)
-			#prob = dense_crf_from_deeplabv2(prob, img_batched)
+			post_processor = DenseCRF(
+				iter_max=4,    # 10
+				pos_xy_std=3,   # 3
+				pos_w=3,        # 3
+				bi_xy_std=32,  # 121, 140
+				bi_rgb_std=5,   # 5, 5
+				bi_w=5,         # 4, 5
+			)
+			# import pdb;pdb.set_trace()
+			prob = post_processor(img_batched, prob)
+			#prob = dense_crf(prob, img_batched, n_classes=cfg.MODEL_NUM_CLASSES, n_iters=1)
+			#prob = pro_crf(prob, img_batched, itr=1)
 			prob_seg = torch.from_numpy(prob.astype(np.float32))
 
 		result = torch.argmax(prob_seg, dim=0, keepdim=False).cpu().numpy()
