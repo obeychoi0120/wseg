@@ -423,7 +423,7 @@ def train_seam_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, model
             with torch.no_grad():
                 pred_w, _, pred_rv_w, cam_w = model(img_w)  ###
                 # Make CAM (use label)
-                cam_w[:,:-1] = label[:,:,None,None]
+                cam_w[:B,:-1] *= label[:,:,None,None]
 
                 ### Apply strong transforms to pseudo-label(pixelwise matching with ulb_cam2) ###
                 if args.ulb_aug_type == 'strong':
@@ -620,7 +620,7 @@ def train_eps_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, model,
             ema.apply_shadow()
             with torch.no_grad():
                 ulb_pred1, ulb_cam1 = model(img_w)  ###
-                ulb_cam1[:,:-1] *= label[:,:,None,None]
+                ulb_cam1[:B,:-1] *= label[:,:,None,None]
 
                 ### Apply strong transforms to pseudo-label(pixelwise matching with ulb_cam2) ###
                 if args.ulb_aug_type == 'strong':
@@ -821,7 +821,7 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
             with torch.no_grad():
                 pred_w, cam_w, pred_rv_w, cam_rv_w, feat_w = model(img_w) # Whole Images (for SSL)
                 # Make CAM (use label)
-                cam_w[:,:-1] = label[:,:,None,None]
+                cam_w[:B,:-1] *= label[:,:,None,None]
 
                 ### Apply strong transforms to pseudo-label(pixelwise matching with ulb_cam2) ###
                 if args.ulb_aug_type == 'strong':
