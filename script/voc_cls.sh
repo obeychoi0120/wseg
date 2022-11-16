@@ -8,7 +8,7 @@ GPU=0,1,2,3
 IMG_ROOT=${DATASET_ROOT}/JPEGImages
 BACKBONE=resnet38_cls
 SESSION=resnet38_cls
-BASE_WEIGHT=${WEIGHT}/ilsvrc-cls_rna-a1_cls1000_ep-0001.params
+BASE_WEIGHT=${WEIGHT_ROOT}/ilsvrc-cls_rna-a1_cls1000_ep-0001.params
 
 
 # 1. train classification network
