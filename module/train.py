@@ -466,7 +466,7 @@ def train_cls_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, model,
             loss = loss_cls + loss_ssl
 
             avg_meter.add({'loss': loss.item(),
-                           'loss_cls': loss.item(),
+                           'loss_cls': loss_cls.item(),
                            'loss_ssl': loss_ssl.item()})
 
             if 1 in args.ssl_type:
