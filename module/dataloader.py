@@ -27,16 +27,20 @@ def get_dataloader(args):
             dataset             = args.dataset,
             img_id_list_file    = args.train_list,
             img_root            = args.data_root,
-            tv_transform        = transforms.Compose([
-                                imutils.RandomResizeLong(args.resize_size[0], args.resize_size[1]),
-                                transforms.RandomHorizontalFlip(),
-                                transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.1),
-                                np.asarray,
-                                Normalize(),
-                                imutils.RandomCrop(args.crop_size),
-                                imutils.HWC_to_CHW,
-                                torch.from_numpy
-            ]))
+            crop_size           = args.crop_size,
+            resize_size         = args.resize_size,
+            **ssl_params
+        )
+            # tv_transform        = transforms.Compose([
+            #                     imutils.RandomResizeLong(args.resize_size[0], args.resize_size[1]),
+            #                     transforms.RandomHorizontalFlip(),
+            #                     transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.1),
+            #                     np.asarray,
+            #                     Normalize(),
+            #                     imutils.RandomCrop(args.crop_size),
+            #                     imutils.HWC_to_CHW,
+            #                     torch.from_numpy
+            # ]))
     elif args.network_type in ['seam']:
         train_dataset = CLS_DATASET(
             dataset             = args.dataset,

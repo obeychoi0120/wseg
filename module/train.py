@@ -65,6 +65,8 @@ def train_cls(train_loader, val_dataloader, model, optimizer, max_step, args):
                 if args.use_wandb:
                     wandb.log({'train/'+k: avg_meter.pop(k) for k in avg_meter.get_keys()}, step=iteration)
                     wandb.log({k: v for k, v in tscalar.items()}, step=iteration)
+                    
+                tscalar.clear()
 
             # Validate K times
             current_step = optimizer.global_step-(max_step % val_freq)
@@ -348,6 +350,185 @@ def train_contrast(train_dataloader, val_dataloader, model, optimizer, max_step,
                 tb_writer.add_scalar(k, value, iteration)
             timer.reset_stage()
     torch.save(model.module.state_dict(), os.path.join(args.log_folder, 'checkpoint.pth'))
+
+
+def train_cls_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, model, optimizer, max_step, args):
+    log_keys = ['loss', 'loss_cls', 'loss_ssl']
+    if 1 in args.ssl_type:
+        log_keys.append('loss_mt')
+        log_keys.append('mt_mask_ratio')
+    if 2 in args.ssl_type:
+        log_keys.append('loss_pmt')
+    if 3 in args.ssl_type:
+        log_keys.append('loss_pl')
+        log_keys.append('mask_ratio')
+    if 4 in args.ssl_type:
+        log_keys.append('loss_con')
+    if 5 in args.ssl_type:
+        log_keys.append('loss_cdc')
+        log_keys.append('ratio_cdc_pos')
+        log_keys.append('ratio_cdc_neg')
+    avg_meter = pyutils.AverageMeter(*log_keys) ###
+    timer = pyutils.Timer("Session started: ")
+
+    # DataLoader
+    lb_loader_iter = iter(train_dataloader)
+    ulb_loader_iter = iter(train_ulb_dataloader) if train_ulb_dataloader else None ###
+    strong_transforms = tensor_augment_list() ###
+    
+    # EMA
+    #ema_model = deepcopy(model)
+    ema = EMA(model, args.ema_m)
+    ema.register()
+
+    # Wandb logging
+    if args.use_wandb:
+        wandb.watch(model, log_freq=args.log_freq * args.iter_size)
+    tscalar = {}
+    val_freq = max_step // args.val_times ### validation logging
+
+    # Iter
+    print(args)
+    for iteration in range(args.max_iters):
+        for _ in range(args.iter_size):
+            try:
+                img_id, img_w, img_s, ops, label = next(lb_loader_iter)
+            except:
+                lb_loader_iter = iter(train_dataloader)
+                img_id, img_w, img_s, ops, label = next(lb_loader_iter)
+            B = len(img_id)
+
+            ### Unlabeled ###
+            if train_ulb_dataloader:
+                try:
+                    ulb_img_id, ulb_img_w, ulb_img_s, ulb_ops = next(ulb_loader_iter)
+                except:
+                    ulb_loader_iter = iter(train_ulb_dataloader)        ###
+                    ulb_img_id, ulb_img_w, ulb_img_s, ulb_ops = next(ulb_loader_iter)
+
+                # Concat Image lb & ulb ###
+                img_id = img_id + ulb_img_id
+                img_w = torch.cat([img_w, ulb_img_w], dim=0)
+                img_s = torch.cat([img_s, ulb_img_s], dim=0)
+                # Concat Strong Aug. options ###
+                for i, ((idx, v), (ulb_idx, ulb_v)) in enumerate(zip(ops, ulb_ops)):
+                    ops[i][0] = torch.cat([idx, ulb_idx], dim=0)
+                    ops[i][1] = torch.cat([v, ulb_v], dim=0)
+
+            img_w = img_w.cuda(non_blocking=True)
+            img_s = img_s.cuda(non_blocking=True)
+            label = label.cuda(non_blocking=True)
+
+            pred = model(img_w[:B])
+
+            ### Teacher (for ulb)
+            ema.apply_shadow()
+            with torch.no_grad():
+                ulb_pred1, ulb_cam1 = model(img_w, forward_cam=True)  ###
+                ulb_cam1[:B,:-1] *= label[:,:,None,None]
+
+                ### Apply strong transforms to pseudo-label(pixelwise matching with ulb_cam2) ###
+                if args.ulb_aug_type == 'strong':
+                    ulb_cam1_s = apply_strong_tr(ulb_cam1, ops, strong_transforms=strong_transforms)
+                    # ulb_cam_rv1_s = apply_strong_tr(ulb_cam_rv1, ops2, strong_transforms=strong_transforms)
+                else: # weak aug
+                    ulb_cam1_s = ulb_cam1
+                
+                ### Cutmix 
+                if args.use_cutmix:
+                    img_s, ulb_cam1_s = cutmix(img_s, ulb_cam1_s)
+                    # ulb_img2, ulb_cam1_s, ulb_feat1_s = cutmix(ulb_img2, ulb_cam1_s, ulb_feat1_s)
+
+                ### Make strong augmented (transformed) prediction for MT ###
+                if 1 in args.ssl_type:
+                    ulb_pred1_s = F.avg_pool2d(ulb_cam1_s, kernel_size=(ulb_cam1_s.size(-2), ulb_cam1_s.size(-1)), padding=0)
+                    ulb_pred1_s = ulb_pred1_s.view(ulb_pred1_s.size(0), -1)
+                else:
+                    ulb_pred1_s = ulb_pred1
+                ### Make masks for pixel-wise MT ###
+                mask_s = torch.ones_like(ulb_cam1)
+                if 2 in args.ssl_type or 4 in args.ssl_type :
+                    mask_s = apply_strong_tr(mask_s, ops, strong_transforms=strong_transforms)
+
+            ema.restore()
+            ###
+
+            ### Student (for ulb)
+            ulb_pred2, ulb_cam2 = model(img_s, forward_cam=True) ###
+
+            # Classification loss
+            loss_cls = F.multilabel_soft_margin_loss(pred[:, :-1], label)
+
+            ###########           Semi-supervsied Learning Loss           ###########
+            ssl_pack = get_ssl_loss(args, iteration, pred_s=ulb_pred2, pred_t=ulb_pred1_s, cam_s=ulb_cam2, cam_t=ulb_cam1_s, mask=mask_s)
+            loss_ssl = ssl_pack['loss_ssl']
+
+            loss = loss_cls + loss_ssl
+
+            avg_meter.add({'loss': loss.item(),
+                           'loss_cls': loss.item(),
+                           'loss_ssl': loss_ssl.item()})
+
+            if 1 in args.ssl_type:
+                avg_meter.add({'loss_mt'      : ssl_pack['loss_mt'].item(),
+                               'mt_mask_ratio': ssl_pack['mask_mt'].item()})
+            if 2 in args.ssl_type:
+                avg_meter.add({'loss_pmt'     : ssl_pack['loss_pmt'].item()})
+            if 3 in args.ssl_type:
+                avg_meter.add({'loss_pl'      : ssl_pack['loss_pl'].item(),
+                               'mask_ratio'   : ssl_pack['mask_pl'].item()})
+            if 4 in args.ssl_type:
+                avg_meter.add({'loss_con'     : ssl_pack['loss_con'].item()})
+            if 5 in args.ssl_type:
+                avg_meter.add({'loss_cdc'     : ssl_pack['loss_cdc'].item(),
+                               'cdc_pos_ratio': ssl_pack['mask_cdc_pos'].item(),
+                               'cdc_neg_ratio': ssl_pack['mask_cdc_neg'].item()})
+            ###
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            ema.update() ########
+
+            # Logging
+            if (optimizer.global_step-1) % (args.log_freq * args.iter_size) == 0:
+                timer.update_progress(optimizer.global_step / max_step)
+                tscalar['train/lr'] = optimizer.param_groups[0]['lr']
+
+                # Print Logs
+                print('Iter:%5d/%5d' % (iteration, args.max_iters),
+                      'Loss:%.4f' % (avg_meter.get('loss')),
+                      'Loss_Cls:%.4f' % (avg_meter.get('loss_cls')), end=' ')
+                # SSL Losses
+                for k, v in ssl_pack.items():
+                    print(f'{k.replace(" ","_")}: {v.item():.4f}', end=' ')                    
+                print('imps:%.1f'   % ((iteration+1) * args.batch_size / timer.get_stage_elapsed()),
+                      'Fin:%s'      % (timer.str_est_finish()),
+                      'lr: %.4f'    % (tscalar['train/lr']), flush=True)
+                
+                ### wandb logging Scalars, Histograms, Images ###
+                if args.use_wandb:
+                    wandb.log({'train/'+k: avg_meter.pop(k) for k in avg_meter.get_keys()}, step=iteration)
+                    wandb.log({k: v for k, v in tscalar.items()}, step=iteration)
+                    
+                tscalar.clear()
+
+            # Validate K times
+            current_step = optimizer.global_step-(max_step % val_freq)
+            if current_step and current_step % val_freq == 0:
+                # Save intermediate model
+                model_path = os.path.join(args.log_folder, f'checkpoint_{iteration}.pth')
+                torch.save(model.module.state_dict(), model_path)
+                print(f'Model {model_path} Saved.')
+
+                # Validation
+                if val_dataloader is not None:
+                    print('Validating Student Model... ')
+                    validate(args, model, val_dataloader, iteration, tag='val') 
+            timer.reset_stage()
+
+    torch.save(model.module.state_dict(), os.path.join(args.log_folder, 'checkpoint.pth'))
+
 
 ### SEAM + semi-supervsied learning ###
 def train_seam_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, model, optimizer, max_step, args):
@@ -674,7 +855,7 @@ def train_eps_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, model,
             avg_meter.add({'loss': loss.item(),
                            'loss_cls': loss_cls.item(),
                            'loss_sal': loss_sal.item(),
-                           'loss_ssl': loss_sal.item()})
+                           'loss_ssl': loss_ssl.item()})
             if 1 in args.ssl_type:
                 avg_meter.add({'loss_mt'      : ssl_pack['loss_mt'].item(),
                                'mt_mask_ratio': ssl_pack['mask_mt'].item()})

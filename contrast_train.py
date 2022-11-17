@@ -10,7 +10,7 @@ from util import pyutils
 from module.dataloader import get_dataloader
 from module.model import get_model
 from module.optimizer import get_optimizer
-from module.train import train_cls, train_seam, train_eps, train_contrast, train_seam_ssl, train_eps_ssl, train_contrast_ssl
+from module.train import train_cls, train_seam, train_eps, train_contrast, train_cls_ssl, train_seam_ssl, train_eps_ssl, train_contrast_ssl
 
 cudnn.enabled = True
 torch.backends.cudnn.benchmark = False
@@ -159,7 +159,10 @@ if __name__ == '__main__':
     
     # Train
     if args.network_type == 'cls':
-        train_cls(train_loader, val_loader, model, optimizer, max_step, args)
+        if args.ssl:
+            train_cls_ssl(train_loader, train_ulb_loader, val_loader, model, optimizer, max_step, args)
+        else:
+            train_cls(train_loader, val_loader, model, optimizer, max_step, args)
     elif args.network_type == 'seam':
         if args.ssl:
             train_seam_ssl(train_loader, train_ulb_loader, val_loader, model, optimizer, max_step, args)
