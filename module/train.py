@@ -460,7 +460,7 @@ def train_cls_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, model,
             loss_cls = F.multilabel_soft_margin_loss(pred[:, :-1], label)
 
             ###########           Semi-supervsied Learning Loss           ###########
-            ssl_pack = get_ssl_loss(args, iteration, pred_s=ulb_pred2, pred_t=ulb_pred1_s, cam_s=ulb_cam2, cam_t=ulb_cam1_s, mask=mask_s)
+            ssl_pack = get_ssl_loss(args, iteration, pred_s=ulb_pred2, pred_t=ulb_pred1_s, cam_s=ulb_cam2[:,:-1], cam_t=ulb_cam1_s[:,:-1], mask=mask_s)
             loss_ssl = ssl_pack['loss_ssl']
 
             loss = loss_cls + loss_ssl
