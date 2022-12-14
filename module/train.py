@@ -920,7 +920,7 @@ def train_eps_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, model,
 
 ### contrast + semi-supervised learning ###
 def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, model, optimizer, max_step, args):
-    log_keys = ['loss', 'loss_cls', 'loss_sal', 'loss_nce', 'loss_er', 'loss_ecr', 'loss_ssl']
+    log_keys = ['loss', 'loss_cls', 'loss_sal', 'loss_nce', 'loss_er', 'loss_ecr', 'loss_ssl', 'p_cutoff']
     if 1 in args.ssl_type:
         log_keys.append('loss_mt')
         log_keys.append('mt_mask_ratio')
@@ -929,6 +929,7 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
     if 3 in args.ssl_type:
         log_keys.append('loss_pl')
         log_keys.append('mask_ratio')
+        log_keys.append('p_cutoff')
     if 4 in args.ssl_type:
         log_keys.append('loss_con')
     if 5 in args.ssl_type:
@@ -1068,7 +1069,7 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
             loss_nce = get_contrast_loss(cam_rv1, cam_rv2, feat1, feat2, label, gamma=gamma, bg_thres=0.10)
 
             ###########           Semi-supervsied Learning Loss           ###########
-            ssl_pack = get_ssl_loss(args, iteration, pred_s=pred_s, pred_t=pred_s_t, cam_s=cam_s, cam_t=cam_s_t, feat_s=feat_s, feat_t=None, mask=mask_s)
+            ssl_pack, cutoff_value = get_ssl_loss(args, iteration, pred_s=pred_s, pred_t=pred_s_t, cam_s=cam_s, cam_t=cam_s_t, feat_s=feat_s, feat_t=None, mask=mask_s)
             loss_ssl = ssl_pack['loss_ssl']
 
             loss = loss_cls + loss_er + loss_ecr + loss_sal + loss_nce + loss_ssl
@@ -1080,7 +1081,9 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
                            'loss_nce': loss_nce.item(),
                            'loss_er' : loss_er.item(),
                            'loss_ecr': loss_ecr.item(),
-                           'loss_ssl': loss_ssl.item()})
+                           'loss_ssl': loss_ssl.item(),
+                           'p_cutoff': cutoff_value
+                           })
             if 1 in args.ssl_type:
                 avg_meter.add({'loss_mt'      : ssl_pack['loss_mt'].item(),
                                'mt_mask_ratio': ssl_pack['mask_mt'].item()})
@@ -1113,8 +1116,10 @@ def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, m
                       'Loss_Cls:%.4f' % (avg_meter.get('loss_cls')),
                       'Loss_Sal:%.4f' % (avg_meter.get('loss_sal')),
                       'Loss_Nce:%.4f' % (avg_meter.get('loss_nce')),
-                      'Loss_ER: %.4f' % (avg_meter.get('loss_er')),
-                      'Loss_ECR:%.4f' % (avg_meter.get('loss_ecr')), end=' ')
+                      'Loss_ER:%.4f' % (avg_meter.get('loss_er')),
+                      'Loss_ECR:%.4f' % (avg_meter.get('loss_ecr')),
+                      'p_cutoff:%.4f' % (avg_meter.get('p_cutoff')),
+                       end=' ')
                 # SSL Losses
                 for k, v in ssl_pack.items():
                     print(f'{k.replace(" ","_")}: {v.item():.4f}', end=' ')

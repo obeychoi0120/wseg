@@ -1,6 +1,5 @@
 import torch
 
-
 class PolyOptimizer(torch.optim.SGD):
 
     def __init__(self, params, lr, weight_decay, max_step, momentum=0.9):

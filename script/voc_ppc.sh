@@ -1,7 +1,7 @@
 # NEED TO SET
-DATASET_ROOT=../../dataset/VOC/VOCdevkit/VOC2012/
-WEIGHT_ROOT=./pretrained
-SALIENCY_ROOT=./SALImages
+DATASET_ROOT=../data/VOCdevkit/VOC2012
+WEIGHT_ROOT=../pretrained
+SALIENCY_ROOT=SALImages
 
 GPU=0,1,2,3
 
@@ -9,12 +9,15 @@ GPU=0,1,2,3
 IMG_ROOT=${DATASET_ROOT}/JPEGImages
 SAL_ROOT=${DATASET_ROOT}/${SALIENCY_ROOT}
 BACKBONE=resnet38_contrast
-SESSION="ppc"
+SESSION="P_cutoff_0.99-0.8_ssl_1"
 BASE_WEIGHT=${WEIGHT_ROOT}/ilsvrc-cls_rna-a1_cls1000_ep-0001.params
 
+# echo 'Image root : ', $IMG_ROOT
+# echo 'Saliency root : ', $SAL_ROOT
 
 # train classification network with Contrastive Learning
 CUDA_VISIBLE_DEVICES=${GPU} python3 contrast_train.py \
+    --ssl               \
     --use_wandb         \
     --session           ${SESSION} \
     --network           network.${BACKBONE} \

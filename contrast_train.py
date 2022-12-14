@@ -32,7 +32,6 @@ def get_arguments():
     parser.add_argument('--train_list', default='data/voc12/train_aug_id.txt', type=str)
     parser.add_argument('--val_list', default='data/voc12/train_id.txt', type=str)
     parser.add_argument('--data_on_mem', action='store_true') ### Load dataset on RAM(need 20GB additional RAM)
-
     parser.add_argument('--batch_size', default=8, type=int)
     parser.add_argument('--crop_size', default=448, type=int)
     parser.add_argument('--resize_size', default=(448, 768), type=int, nargs='*')
@@ -41,7 +40,6 @@ def get_arguments():
     parser.add_argument('--iter_size', default=2, type=int)
     parser.add_argument('--max_iters', default=10000, type=int)
     parser.add_argument('--max_epoches', default=None, type=int) # default=15
-
     parser.add_argument('--lr', default=0.01, type=float)
     parser.add_argument('--num_workers', default=8, type=int)
     parser.add_argument('--wt_dec', default=5e-4, type=float)
@@ -73,7 +71,8 @@ def get_arguments():
     parser.add_argument('--mt_p', default=0., type=float) # ratio of ssl loss
     
     parser.add_argument('--ssl_lambda', default=1.0, type=float) # ratio of ssl loss
-    parser.add_argument('--p_cutoff', default=0.95, type=float)
+    parser.add_argument('--p_cutoff', default=0.99, type=float)
+    parser.add_argument('--min_p_cutoff', default=0.8, type=float)
     parser.add_argument('--th_scheduler', action='store_true') # Threshold Scheduler
     parser.add_argument('--T', type=float, default=0.5)
     parser.add_argument('--soft_label', action='store_true') # hard label(Default) or soft label

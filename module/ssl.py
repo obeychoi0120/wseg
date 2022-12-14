@@ -34,8 +34,11 @@ def get_ssl_loss(args, iteration, pred_s=None, pred_t=None, cam_s=None, cam_t=No
         losses['loss_ssl'] += losses['loss_pmt'] * args.ssl_lambda
 
     ######  3. Pixel-wise CAM pseudo-labeling(FixMatch, CE) loss  ######
+    ######                  loss_ssl만 사용                        ######
     if 3 in args.ssl_type:
-        losses['loss_pl'], losses['mask_pl'], _, pseudo_label = consistency_loss(cam_s, cam_t, 'ce', args.T, args.p_cutoff, args.soft_label)
+        ratio = float(np.clip((iteration/args.max_iters)+1e-9 , 0., 1.))    # 0~1 
+        cutoff = args.p_cutoff - ratio*(args.p_cutoff - args.min_p_cutoff)  # min_p_cutoff: 0.8
+        losses['loss_pl'], losses['mask_pl'], _, pseudo_label = consistency_loss(cam_s, cam_t, 'ce', args.T, cutoff, args.soft_label)
         losses['loss_ssl'] += losses['loss_pl'] * args.ssl_lambda
 
     ######           4. T(f(x)) <=> f(T(x)) InfoNCE loss          ######
@@ -50,7 +53,7 @@ def get_ssl_loss(args, iteration, pred_s=None, pred_t=None, cam_s=None, cam_t=No
         losses['loss_cdc'], losses['mask_cdc_pos'], losses['mask_cdc_neg'] = class_discriminative_contrastive_loss(cam_s, feat_s, args.p_cutoff, inter=args.cdc_inter, temperature=args.cdc_T, normalize=args.cdc_norm)
         losses['loss_ssl'] += losses['loss_cdc'] * args.cdc_lambda
 
-    return losses
+    return losses, cutoff
     
 
 def consistency_loss(logits_s, logits_t, name='L2', T=1.0, p_cutoff=0.0, use_soft_label=False, mask=None):
@@ -66,7 +69,7 @@ def consistency_loss(logits_s, logits_t, name='L2', T=1.0, p_cutoff=0.0, use_sof
     elif name == 'ce':
         pseudo_label = torch.softmax(logits_t, dim=1)
         max_probs, max_idx = torch.max(pseudo_label, dim=1)
-        mask = max_probs.ge(p_cutoff).float()
+        mask = max_probs.ge(p_cutoff).float()   # greater or equal than
         #mask = torch.where(max_idx < 20, mask, torch.zeros_like(mask)) # ignore background confidence
         select = max_probs.ge(p_cutoff).long()
         # strong_prob, strong_idx = torch.max(torch.softmax(logits_s, dim=-1), dim=-1)
