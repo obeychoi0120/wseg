@@ -922,7 +922,7 @@ def train_eps_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, model,
 def train_contrast_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, model, optimizer, max_step, args):
     log_keys = ['loss', 'loss_cls', 'loss_sal', 'loss_nce', 'loss_er', 'loss_ecr', 'loss_ssl', 'p_cutoff']
     if 1 in args.ssl_type:
-        log_keys.append('loss_mt')
+        log_keys.append('loss_mt')  # loss of Mean Teacher
         log_keys.append('mt_mask_ratio')
     if 2 in args.ssl_type:
         log_keys.append('loss_pmt')

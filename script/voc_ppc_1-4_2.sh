@@ -2,14 +2,14 @@
 DATASET_ROOT=../data/VOCdevkit/VOC2012
 WEIGHT_ROOT=../pretrained
 SALIENCY_ROOT=SALImages
-
+DATASET='voc12'
 GPU=0,1,2,3
 
 # Default setting
 IMG_ROOT=${DATASET_ROOT}/JPEGImages
 SAL_ROOT=${DATASET_ROOT}/${SALIENCY_ROOT}
 BACKBONE=resnet38_contrast
-SESSION="P_SSL1_4_cutoff0.95"
+SESSION="P_SSL1-4_cutoff0.99-0.8"
 BASE_WEIGHT=${WEIGHT_ROOT}/ilsvrc-cls_rna-a1_cls1000_ep-0001.params
 
 # for SSL
@@ -28,8 +28,8 @@ CUDA_VISIBLE_DEVICES=${GPU} python3 contrast_train.py \
     --ssl               \
     --train_list        ${LB_DATA_LIST} \
     --train_ulb_list    ${ULB_DATA_LIST} \
-    --p_cutoff 0.95
-    # --min_p_cutoff 0.8
+    --p_cutoff 0.99             \
+    --min_p_cutoff 0.8          \
     --session           ${SESSION} \
     --use_wandb         \
     --network           network.${BACKBONE} \
