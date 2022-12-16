@@ -72,7 +72,7 @@ def get_arguments():
     
     parser.add_argument('--ssl_lambda', default=1.0, type=float) # ratio of ssl loss
     parser.add_argument('--p_cutoff', default=0.99, type=float)
-    parser.add_argument('--min_p_cutoff', default=0.8, type=float)
+    parser.add_argument('--min_p_cutoff', type=float)
     parser.add_argument('--th_scheduler', action='store_true') # Threshold Scheduler
     parser.add_argument('--T', type=float, default=0.5)
     parser.add_argument('--soft_label', action='store_true') # hard label(Default) or soft label
