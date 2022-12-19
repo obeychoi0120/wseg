@@ -37,8 +37,8 @@ def get_ssl_loss(args, iteration, pred_s=None, pred_t=None, cam_s=None, cam_t=No
     ######                  loss_ssl만 사용                        ######
     if 3 in args.ssl_type:
         ratio = float(np.clip((iteration/args.max_iters)+1e-9 , 0., 1.))    # 0~1 
-        if args.min_p_cutoff:
-            cutoff = args.p_cutoff - ratio*(args.p_cutoff - args.min_p_cutoff)  # min_p_cutoff: 0.8
+        if args.last_p_cutoff:
+            cutoff = args.p_cutoff - ratio*(args.p_cutoff - args.last_p_cutoff)  # last_p_cutoff: 0.8
         else:
             cutoff = args.p_cutoff
         losses['loss_pl'], losses['mask_pl'], _, pseudo_label = consistency_loss(cam_s, cam_t, 'ce', args.T, cutoff, args.soft_label)

@@ -18,27 +18,24 @@ SPLIT_NUM="0"
 LB_DATA_LIST=data/${DATASET}/split/${SPLIT}/lb_train_${SPLIT_NUM}.txt   #########
 ULB_DATA_LIST=data/${DATASET}/split/${SPLIT}/ulb_train_${SPLIT_NUM}.txt #########
 
-# echo 'Image root : ', $IMG_ROOT
-# echo 'Saliency root : ', $SAL_ROOT
-
-# # train classification network with Contrastive Learning
-# CUDA_VISIBLE_DEVICES=${GPU} python3 contrast_train.py \
-#     --ssl               \
-#     --use_wandb         \
-#     --train_list        ${LB_DATA_LIST} \
-#     --train_ulb_list    ${ULB_DATA_LIST} \
-#     --p_cutoff 0.99     \
-#     --min_p_cutoff 0.8  \
-#     --session           ${SESSION} \
-#     --network           network.${BACKBONE} \
-#     --data_root         ${IMG_ROOT} \
-#     --saliency_root     ${SAL_ROOT} \
-#     --weights           ${BASE_WEIGHT} \
-#     --crop_size         448 \
-#     --tau               0.4 \
-#     --max_iters         10000 \
-#     --iter_size         2 \
-#     --batch_size        8
+#train classification network with Contrastive Learning
+CUDA_VISIBLE_DEVICES=${GPU} python3 contrast_train.py \
+    --ssl               \
+    --use_wandb         \
+    --train_list        ${LB_DATA_LIST} \
+    --train_ulb_list    ${ULB_DATA_LIST} \
+    --p_cutoff 0.99     \
+    --min_p_cutoff 0.8  \
+    --session           ${SESSION} \
+    --network           network.${BACKBONE} \
+    --data_root         ${IMG_ROOT} \
+    --saliency_root     ${SAL_ROOT} \
+    --weights           ${BASE_WEIGHT} \
+    --crop_size         448 \
+    --tau               0.4 \
+    --max_iters         10000 \
+    --iter_size         2 \
+    --batch_size        8
 
 # 2. inference CAM
 DATA=train_aug # train / train_aug

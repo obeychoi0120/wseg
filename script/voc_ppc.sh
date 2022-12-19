@@ -1,7 +1,7 @@
 # NEED TO SET
-DATASET_ROOT=../data/VOCdevkit/VOC2012
+DATASET_ROOT=../data/VOCdevkit/VOC2012/
 WEIGHT_ROOT=pretrained
-SALIENCY_ROOT=SALImages
+SALIENCY_ROOT=./SALImages
 
 GPU=0,1,2,3
 
@@ -9,28 +9,13 @@ GPU=0,1,2,3
 IMG_ROOT=${DATASET_ROOT}/JPEGImages
 SAL_ROOT=${DATASET_ROOT}/${SALIENCY_ROOT}
 BACKBONE=resnet38_contrast
-SESSION="P_SSL1_4_cutoff0.95"
+SESSION="P_ppc_cutoff0.8-0.99"
 BASE_WEIGHT=${WEIGHT_ROOT}/ilsvrc-cls_rna-a1_cls1000_ep-0001.params
 
-# for SSL
-SPLIT="1_4"
-SPLIT_NUM="0"
-LB_DATA_LIST=./data/${DATASET}/split/${SPLIT}/lb_train_${SPLIT_NUM}.txt ############
-ULB_DATA_LIST=./data/${DATASET}/split/${SPLIT}/ulb_train_${SPLIT_NUM}.txt #########
-
-
-
-# echo 'Image root : ', $IMG_ROOT
-# echo 'Saliency root : ', $SAL_ROOT
 
 # train classification network with Contrastive Learning
 CUDA_VISIBLE_DEVICES=${GPU} python3 contrast_train.py \
-    # --use_wandb         \
-    --ssl               \
-    --train_list        ${LB_DATA_LIST} \
-    --train_ulb_list    ${ULB_DATA_LIST} \
-    --p_cutoff 0.95     \
-    --min_p_cutoff 0.8  \
+    --use_wandb         \
     --session           ${SESSION} \
     --network           network.${BACKBONE} \
     --data_root         ${IMG_ROOT} \
@@ -41,17 +26,16 @@ CUDA_VISIBLE_DEVICES=${GPU} python3 contrast_train.py \
     --max_iters         10000 \
     --iter_size         2 \
     --batch_size        8
+    --p_cutoff 0.8 \
+    --last_p_cutoff 0.99
+    --ssl
 
 
-
-# 2. inference CAM
 DATA=train_aug # train / train_aug
 TRAINED_WEIGHT=train_log/${SESSION}/checkpoint.pth
-
-# Labeled
+# 2. inference CAM
 CUDA_VISIBLE_DEVICES=${GPU} python3 contrast_infer.py \
-    # --infer_list            data/voc12/${DATA}_id.txt \
-    --infer_list            ${LB_DATA_LIST} \
+    --infer_list            data/voc12/${DATA}_id.txt \
     --img_root              ${IMG_ROOT} \
     --network               network.${BACKBONE} \
     --weights               ${TRAINED_WEIGHT} \
@@ -64,26 +48,8 @@ CUDA_VISIBLE_DEVICES=${GPU} python3 contrast_infer.py \
     --crf_t                 5 \
     --crf_alpha             8
 
-# Unlabeled
-CUDA_VISIBLE_DEVICES=${GPU} python3 contrast_infer.py \
-    --infer_list            ${ULB_DATA_LIST} \
-    --img_root              ${IMG_ROOT} \
-    --network               network.${BACKBONE} \
-    --weights               ${TRAINED_WEIGHT} \
-    --thr                   0.22 \
-    --n_gpus                4 \
-    --n_processes_per_gpu   1 1 1 1 \
-    --cam_png               train_log/${SESSION}/result/cam_png \
-    --cam_npy               train_log/${SESSION}/result/cam_npy \
-    --is_unlabeled          \
-    --pl_method             all \
-    --crf                   train_log/${SESSION}/result/crf_png\
-    --crf_t                 5 \
-    --crf_alpha             8 \
-
-# 3. evaluate CAM
 GT_ROOT=${DATASET_ROOT}/SegmentationClassAug/
-
+# 3. evaluate CAM
 CUDA_VISIBLE_DEVICES=${GPU} python3 eval.py \
     --list          data/voc12/train_id.txt \
     --predict_dir   train_log/${SESSION}/result/cam_npy/ \
