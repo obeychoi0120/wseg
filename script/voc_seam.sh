@@ -6,7 +6,7 @@ SALIENCY_ROOT=./SALImages
 GPU=0,1,2,3
 
 # Default setting
-SESSION="P_seam_cutoff0.8"
+SESSION="P_seam_cutoff0.5"
 IMG_ROOT=${DATASET_ROOT}/JPEGImages
 BACKBONE=resnet38_seam
 BASE_WEIGHT=${WEIGHT_ROOT}/ilsvrc-cls_rna-a1_cls1000_ep-0001.params
@@ -23,9 +23,8 @@ CUDA_VISIBLE_DEVICES=${GPU} python3 contrast_train.py \
   --max_iters       10000 \
   --iter_size       2 \
   --batch_size      8 \
-  --p_cutoff        0.8 \
-  # --last_p_cutoff 0.8 \
-  # --use_wandb         \
+  --p_cutoff        0.5 \
+  --use_wandb         \
 
 DATA=train # train / train_aug
 TRAINED_WEIGHT=train_log/${SESSION}/checkpoint_contrast.pth

@@ -657,7 +657,7 @@ def train_seam_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, model
             loss_ssl = ssl_pack['loss_ssl']
             
             loss = loss_cls + loss_er + loss_ecr + loss_ssl # NO saliency for SEAM
-            # import pdb; pdb.set_trace()
+            # SEAM Logging
             # Logging AVGMeter
             avg_meter.add({'loss': loss.item(),
                            'loss_cls': loss_cls.item(),

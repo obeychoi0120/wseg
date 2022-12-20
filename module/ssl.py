@@ -2,7 +2,7 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 from torchvision.transforms import functional as tvf
-
+from torchvision.transforms import InterpolationMode
 import numpy as np
 from PIL import Image
 
@@ -35,12 +35,14 @@ def get_ssl_loss(args, iteration, pred_s=None, pred_t=None, cam_s=None, cam_t=No
 
     ######  3. Pixel-wise CAM pseudo-labeling(FixMatch, CE) loss  ######
     ######                  loss_ssl만 사용                        ######
+    ######                  for PPC, SEAM                          ######
     if 3 in args.ssl_type:
         ratio = float(np.clip((iteration/args.max_iters)+1e-9 , 0., 1.))    # 0~1 
         if args.last_p_cutoff:
             cutoff = args.p_cutoff - ratio*(args.p_cutoff - args.last_p_cutoff)  # last_p_cutoff: 0.8
         else:
             cutoff = args.p_cutoff
+
         losses['loss_pl'], losses['mask_pl'], _, pseudo_label = consistency_loss(cam_s, cam_t, 'ce', args.T, cutoff, args.soft_label)
         losses['loss_ssl'] += losses['loss_pl'] * args.ssl_lambda
 
@@ -215,10 +217,17 @@ def apply_strong_tr(img, ops, strong_transforms=None, fill_background=False):
             kwargs = strong_transforms[idx](img[i], val)
             if fill_background:
                 # replace fillcolor into fill after 0.10
-                kwargs['fillcolor'] = torch.zeros_like(img[i,:,0,0])
-                kwargs['fillcolor'][-1] = img[i].max()
+                try:
+                    kwargs['fillcolor'] = torch.zeros_like(img[i,:,0,0])
+                    kwargs['fillcolor'][-1] = img[i].max()
             # reample: NEAREST or BILINEAR, replace resample into interpolation(:InterpolationMode) after 0.10
-            img[i,:] = tvf.affine(img[i], resample=Image.BILINEAR, **kwargs) 
+                except:
+                    kwargs['fill'] = torch.zeros_like(img[i,:,0,0])
+                    kwargs['fill'][-1] = img[i].max()
+            try:
+                img[i,:] = tvf.affine(img[i], resample=Image.BILINEAR, **kwargs)
+            except:
+                img[i,:] = tvf.affine(img[i], interpolation=InterpolationMode.BILINEAR, **kwargs) 
     return img
 
 
