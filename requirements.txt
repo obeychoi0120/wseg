@@ -13,3 +13,4 @@ scikit-learn
 tqdm
 wandb
 chainercv
+setuptools==49.0.0
