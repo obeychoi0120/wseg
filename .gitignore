@@ -4,11 +4,11 @@ evallog.txt
 __pycache__
 .ipynb_checkpoints
 wandb/*
-
 pretrained/*
 *.pth
 *.params
-
+vis_cam.ipynb
+Visualization Results.ipynb
 segmentation/log
 segmentation/data
 *.png

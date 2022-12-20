@@ -165,6 +165,7 @@ if __name__ == '__main__':
     elif args.network_type == 'seam':
         if args.ssl:
             train_seam_ssl(train_loader, train_ulb_loader, val_loader, model, optimizer, max_step, args)
+            # import pdb; pdb.set_trace()
         else:
             train_seam(train_loader, val_loader, model, optimizer, max_step, args)
     elif args.network_type == 'eps':

@@ -532,7 +532,7 @@ def train_cls_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, model,
 
 ### SEAM + semi-supervsied learning ###
 def train_seam_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, model, optimizer, max_step, args):
-    log_keys = ['loss', 'loss_cls', 'loss_er', 'loss_ecr']
+    log_keys = ['loss', 'loss_cls', 'loss_er', 'loss_ecr', 'loss_ssl', 'p_cutoff']
     if 1 in args.ssl_type:
         log_keys.append('loss_mt')
         log_keys.append('mt_mask_ratio')
@@ -541,6 +541,7 @@ def train_seam_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, model
     if 3 in args.ssl_type:
         log_keys.append('loss_pl')
         log_keys.append('mask_ratio')
+        log_keys.append('p_cutoff')
     if 4 in args.ssl_type:
         log_keys.append('loss_con')
     avg_meter = pyutils.AverageMeter(*log_keys) ###
@@ -652,16 +653,19 @@ def train_seam_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, model
             loss_cls = (loss_cls + loss_cls2) / 2. + (loss_cls_rv1 + loss_cls_rv2) / 2.
 
             ###########           Semi-supervsied Learning Loss           ###########
-            ssl_pack = get_ssl_loss(args, iteration, pred_s=pred_s, pred_t=pred_s_t, cam_s=cam_s, cam_t=cam_s_t, mask=mask_s)
+            ssl_pack, cutoff_value = get_ssl_loss(args, iteration, pred_s=pred_s, pred_t=pred_s_t, cam_s=cam_s, cam_t=cam_s_t, mask=mask_s)
             loss_ssl = ssl_pack['loss_ssl']
-
-            loss = loss_cls + loss_er + loss_ecr + loss_ssl
-    
+            
+            loss = loss_cls + loss_er + loss_ecr + loss_ssl # NO saliency for SEAM
+            # import pdb; pdb.set_trace()
             # Logging AVGMeter
             avg_meter.add({'loss': loss.item(),
                            'loss_cls': loss_cls.item(),
                            'loss_er': loss_er.item(),
-                           'loss_ecr': loss_ecr.item()})
+                           'loss_ecr': loss_ecr.item(),
+                           'loss_ssl': loss_ssl.item(),
+                           'p_cutoff': cutoff_value
+                           })
             if 1 in args.ssl_type:
                 avg_meter.add({'loss_mt'      : ssl_pack['loss_mt'].item(),
                                'mt_mask_ratio': ssl_pack['mask_mt'].item()})
@@ -686,9 +690,12 @@ def train_seam_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, model
 
                 # Print Logs
                 print('Iter:%5d/%5d' % (iteration, args.max_iters),
+                      'Loss:%.4f' % (avg_meter.get('loss')),
                       'Loss_Cls:%.4f' % (avg_meter.get('loss_cls')),
-                      'Loss_ER: %.4f' % (avg_meter.get('loss_er')),
-                      'Loss_ECR:%.4f' % (avg_meter.get('loss_ecr')), end=' ')
+                      'Loss_ER:%.4f' % (avg_meter.get('loss_er')),
+                      'Loss_ECR:%.4f' % (avg_meter.get('loss_ecr')),
+                      'p_cutoff:%.4f' % (avg_meter.get('p_cutoff')),
+                       end=' ')
                 # SSL Losses
                 for k, v in ssl_pack.items():
                     print(f'{k.replace(" ","_")}: {v.item():.4f}', end=' ')
