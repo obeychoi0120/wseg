@@ -6,7 +6,7 @@ SALIENCY_ROOT=./SALImages
 GPU=0,1,2,3
 
 # Default setting
-SESSION="P_seam_cutoff0.5"
+SESSION="seam"
 IMG_ROOT=${DATASET_ROOT}/JPEGImages
 BACKBONE=resnet38_seam
 BASE_WEIGHT=${WEIGHT_ROOT}/ilsvrc-cls_rna-a1_cls1000_ep-0001.params
@@ -14,7 +14,6 @@ BASE_WEIGHT=${WEIGHT_ROOT}/ilsvrc-cls_rna-a1_cls1000_ep-0001.params
 
 # 1. train classification network with Contrastive Learning
 CUDA_VISIBLE_DEVICES=${GPU} python3 contrast_train.py \
-  --ssl                       \
   --session         ${SESSION} \
   --network         network.${BACKBONE} \
   --data_root       ${IMG_ROOT} \
@@ -23,7 +22,6 @@ CUDA_VISIBLE_DEVICES=${GPU} python3 contrast_train.py \
   --max_iters       10000 \
   --iter_size       2 \
   --batch_size      8 \
-  --p_cutoff        0.5 \
   --use_wandb         \
 
 DATA=train # train / train_aug
