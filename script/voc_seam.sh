@@ -6,28 +6,28 @@ SALIENCY_ROOT=./SALImages
 GPU=0,1,2,3
 
 # Default setting
-SESSION="P_seam_cutoff0.5"
+SESSION="P_seam_cutoff0.2"
 IMG_ROOT=${DATASET_ROOT}/JPEGImages
 BACKBONE=resnet38_seam
 BASE_WEIGHT=${WEIGHT_ROOT}/ilsvrc-cls_rna-a1_cls1000_ep-0001.params
 
 
-# 1. train classification network with Contrastive Learning
-CUDA_VISIBLE_DEVICES=${GPU} python3 contrast_train.py \
-  --ssl                       \
-  --session         ${SESSION} \
-  --network         network.${BACKBONE} \
-  --data_root       ${IMG_ROOT} \
-  --weights         ${BASE_WEIGHT} \
-  --crop_size       448 \
-  --max_iters       10000 \
-  --iter_size       2 \
-  --batch_size      8 \
-  --p_cutoff        0.5 \
-  --use_wandb         \
+# # 1. train classification network with Contrastive Learning
+# CUDA_VISIBLE_DEVICES=${GPU} python3 contrast_train.py \
+#   --ssl                       \
+#   --session         ${SESSION} \
+#   --network         network.${BACKBONE} \
+#   --data_root       ${IMG_ROOT} \
+#   --weights         ${BASE_WEIGHT} \
+#   --crop_size       448 \
+#   --max_iters       10000 \
+#   --iter_size       2 \
+#   --batch_size      8 \
+#   --p_cutoff        0.2 \
+#   --use_wandb         \
 
 DATA=train # train / train_aug
-TRAINED_WEIGHT=train_log/${SESSION}/checkpoint_contrast.pth
+TRAINED_WEIGHT=train_log/${SESSION}/checkpoint.pth
 # 2. inference CAM
 CUDA_VISIBLE_DEVICES=${GPU} python3 contrast_infer.py \
     --infer_list data/voc12/${DATA}_id.txt \
@@ -38,7 +38,7 @@ CUDA_VISIBLE_DEVICES=${GPU} python3 contrast_infer.py \
     --n_gpus 4 \
     --n_processes_per_gpu 1 1 1 1 \
     --cam_png train_log/${SESSION}/result/cam_png \
-    --cam_npy train_log/${SESSION}/result/cam_npy #\
+    --cam_npy train_log/${SESSION}/result/cam_npy \
     --crf train_log/${SESSION}/result/crf_png\
     --crf_t 5 \
     --crf_alpha 8
