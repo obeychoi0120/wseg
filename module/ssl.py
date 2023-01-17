@@ -210,27 +210,21 @@ class EMA:
 
 
 def apply_strong_tr(img, ops, strong_transforms=None, fill_background=False):
-    b, c, h, w = img.size()
+    if len(ops):
+        b, c, h, w = img.size()
 
-    ops = torch.stack([torch.stack(op,dim=0) for op in ops], dim=0) # (N_transforms, 2(i,v), Batch_size)
-    img = img.detach().clone()
-    for idxs, vals in ops:
-        for i, (idx, val) in enumerate(zip(idxs, vals)):
-            idx, val = int(idx.item()), val.item()
-            kwargs = strong_transforms[idx](img[i], val)
-            if fill_background:
-                # replace fillcolor into fill after 0.10
-                try:
+        ops = torch.stack([torch.stack(op,dim=0) for op in ops], dim=0) # (N_transforms, 2(i,v), Batch_size)
+        img = img.detach().clone()
+        for idxs, vals in ops:
+            for i, (idx, val) in enumerate(zip(idxs, vals)):
+                idx, val = int(idx.item()), val.item()
+                kwargs = strong_transforms[idx](img[i], val)
+                if fill_background:
+                    # replace fillcolor into fill after 0.10
                     kwargs['fillcolor'] = torch.zeros_like(img[i,:,0,0])
                     kwargs['fillcolor'][-1] = img[i].max()
-            # reample: NEAREST or BILINEAR, replace resample into interpolation(:InterpolationMode) after 0.10
-                except:
-                    kwargs['fill'] = torch.zeros_like(img[i,:,0,0])
-                    kwargs['fill'][-1] = img[i].max()
-            try:
-                img[i,:] = tvf.affine(img[i], resample=Image.BILINEAR, **kwargs)
-            except:
-                img[i,:] = tvf.affine(img[i], interpolation=InterpolationMode.BILINEAR, **kwargs) 
+                # reample: NEAREST or BILINEAR, replace resample into interpolation(:InterpolationMode) after 0.10
+                img[i,:] = tvf.affine(img[i], resample=Image.BILINEAR, **kwargs) 
     return img
 
 
