@@ -43,7 +43,8 @@ def get_ssl_loss(args, iteration, pred_s=None, pred_t=None, cam_s=None, cam_t=No
         else:
             cutoff = args.p_cutoff
 
-        losses['loss_pl'], losses['mask_pl'], _, pseudo_label = consistency_loss(cam_s, cam_t, 'ce', args.T, cutoff, args.soft_label)
+        losses['loss_ce'], losses['loss_pl'], losses['mask_pl'], _, pseudo_label = consistency_loss(cam_s, cam_t, 'ce', args.T, cutoff, args.soft_label)
+        # org_loss.mean(), masked_loss.mean(), mask.mean(), select, max_idx.long()
         losses['loss_ssl'] += losses['loss_pl'] * args.ssl_lambda
 
     ######           4. T(f(x)) <=> f(T(x)) InfoNCE loss          ######
@@ -81,11 +82,13 @@ def consistency_loss(logits_s, logits_t, name='L2', T=1.0, p_cutoff=0.0, use_sof
         # strong_select = strong_prob.ge(p_cutoff).long()
         # select = select * strong_select * (strong_idx == max_idx)
         if not use_soft_label:
-            masked_loss = ce_loss(logits_s, max_idx, use_soft_label, reduction='none') * mask
+            org_loss = ce_loss(logits_s, max_idx, use_soft_label, reduction='none')
+            masked_loss = org_loss * mask
         else:
-            pseudo_label = torch.softmax(logits_t / T, dim=1)
+            pseudo_label = torch.softmax(logits_t / T, dim=1), 
             masked_loss = ce_loss(logits_s, pseudo_label, use_soft_label) * mask
-        return masked_loss.mean(), mask.mean(), select, max_idx.long()
+        
+        return org_loss, masked_loss.mean(), mask.mean(), select, max_idx.long()
 
 
 def ce_loss(preds, targets, use_soft_label=False, reduction='none'):

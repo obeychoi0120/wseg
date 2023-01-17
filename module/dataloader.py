@@ -17,7 +17,7 @@ def get_dataloader(args):
         CLS_DATASET = ClassificationDatasetOnMemory
         CLS_SAL_DATASET = ClassificationDatasetWithSaliencyOnMemory
 
-    if args.ssl:
+    if args.ssl or args.v2:
         ssl_params = {'aug_type': args.ulb_aug_type, 'n_strong_aug': args.n_strong_aug}
     else:
         ssl_params = {}

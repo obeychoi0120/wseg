@@ -10,7 +10,9 @@ from util import pyutils
 from module.dataloader import get_dataloader
 from module.model import get_model
 from module.optimizer import get_optimizer
-from module.train import train_cls, train_seam, train_eps, train_contrast, train_cls_ssl, train_seam_ssl, train_eps_ssl, train_contrast_ssl
+from module.train import train_cls, train_seam,  train_eps, train_contrast, \
+    train_seam2, train_eps2, train_contrast2, train_cls2, \
+    train_cls_ssl, train_seam_ssl, train_eps_ssl, train_contrast_ssl
 
 cudnn.enabled = True
 torch.backends.cudnn.benchmark = False
@@ -20,6 +22,8 @@ dataset_list = ['voc12', 'coco']
 def get_arguments():
     parser = argparse.ArgumentParser()
     # Session
+    parser.add_argument('--test', action='store_true')
+    parser.add_argument('--val_only', action='store_true')
     parser.add_argument('--session', default='wsss', type=str)
     parser.add_argument('--use_wandb', action='store_true') ### Use wandb Logging
     parser.add_argument('--log_freq', default=50, type=int)
@@ -53,6 +57,7 @@ def get_arguments():
     parser.add_argument('--alpha', default=0.5, type=float)
 
     ### Semi-supervised Learning ###
+    parser.add_argument('--v2', action='store_true')
     parser.add_argument('--ssl', action='store_true')
     parser.add_argument('--ssl_type', nargs='+', default=[3], type=int) # 1: MT, 2: pixel-wise MT, 3: fixmatch
     parser.add_argument("--ulb_dataset", default=None, choices=dataset_list, type=str)
@@ -160,24 +165,31 @@ if __name__ == '__main__':
     if args.network_type == 'cls':
         if args.ssl:
             train_cls_ssl(train_loader, train_ulb_loader, val_loader, model, optimizer, max_step, args)
+        elif args.v2:
+            train_cls2(train_loader, train_ulb_loader, val_loader, model, optimizer, max_step, args)
         else:
             train_cls(train_loader, val_loader, model, optimizer, max_step, args)
     elif args.network_type == 'seam':
         if args.ssl:
             train_seam_ssl(train_loader, train_ulb_loader, val_loader, model, optimizer, max_step, args)
-            # import pdb; pdb.set_trace()
+        elif args.v2:
+            train_seam2(train_loader, train_ulb_loader, val_loader, model, optimizer, max_step, args)
         else:
-            train_seam(train_loader, val_loader, model, optimizer, max_step, args)
+            train_seam2(train_loader, val_loader, model, optimizer, max_step, args)
     elif args.network_type == 'eps':
         if args.ssl:
             train_eps_ssl(train_loader, train_ulb_loader, val_loader, model, optimizer, max_step, args) ###
+        elif args.v2:
+            train_eps2(train_loader, train_ulb_loader, val_loader, model, optimizer, max_step, args)
         else:
-            train_eps(train_loader, val_loader, model, optimizer, max_step, args)
+            train_eps2(train_loader, val_loader, model, optimizer, max_step, args)
     elif args.network_type == 'contrast':
         if args.ssl:
             train_contrast_ssl(train_loader, train_ulb_loader, val_loader, model, optimizer, max_step, args) ###
+        elif args.v2:
+            train_contrast2(train_loader, train_ulb_loader, val_loader, model, optimizer, max_step, args)
         else:
-            train_contrast(train_loader, val_loader, model, optimizer, max_step, args)
+            train_contrast2(train_loader, val_loader, model, optimizer, max_step, args)
     else:
         raise Exception('No appropriate model type')
     

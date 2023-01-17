@@ -2,13 +2,12 @@ train_log/*
 tblog/*
 evallog.txt
 __pycache__
-.ipynb_checkpoints
+.ipynb_checkpoints/*
 wandb/*
 pretrained/*
 *.pth
 *.params
-vis_cam.ipynb
-Visualization Results.ipynb
+*.ipynb
 segmentation/log
 segmentation/data
 *.png
