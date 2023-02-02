@@ -43,7 +43,8 @@ def get_ssl_loss(args, iteration, pred_s=None, pred_t=None, cam_s=None, cam_t=No
         else:
             cutoff = args.p_cutoff
 
-        losses['loss_ce'], losses['loss_pl'], losses['mask_pl'], _, pseudo_label = consistency_loss(cam_s, cam_t, 'ce', args.T, cutoff, args.soft_label)
+        losses['loss_ce'], losses['loss_pl'], losses['mask_pl'], _, pseudo_label = \
+            consistency_loss(cam_s, cam_t, 'ce', args.T, cutoff, args.soft_label)
         # org_loss.mean(), masked_loss.mean(), mask.mean(), select, max_idx.long()
         losses['loss_ssl'] += losses['loss_pl'] * args.ssl_lambda
 
@@ -62,7 +63,8 @@ def get_ssl_loss(args, iteration, pred_s=None, pred_t=None, cam_s=None, cam_t=No
     return losses, cutoff
     
 
-def consistency_loss(logits_s, logits_t, name='L2', T=1.0, p_cutoff=0.0, use_soft_label=False, mask=None):
+def consistency_loss(logits_s, logits_t, name='L2', T=1.0, p_cutoff=0.0, \
+                        use_soft_label=False, mask=None):
     logits_t = logits_t.detach()
     if name == 'L2':
         assert logits_s.size() == logits_t.size()
@@ -84,8 +86,9 @@ def consistency_loss(logits_s, logits_t, name='L2', T=1.0, p_cutoff=0.0, use_sof
         if not use_soft_label:
             org_loss = ce_loss(logits_s, max_idx, use_soft_label, reduction='none')
             masked_loss = org_loss * mask
-        else:
-            pseudo_label = torch.softmax(logits_t / T, dim=1), 
+        else:   # soft label
+            pseudo_label = torch.softmax(logits_t / T, dim=1)
+            org_loss = ce_loss(logits_s, pseudo_label, use_soft_label)
             masked_loss = ce_loss(logits_s, pseudo_label, use_soft_label) * mask
         
         return org_loss, masked_loss.mean(), mask.mean(), select, max_idx.long()
@@ -151,10 +154,25 @@ def nce_softmax_loss(x, T=0.01):
 
 
 def cam_normalize(x):
-    return x / x.norm(2, dim=1, keepdim=True)
+    return x / (x.norm(2, dim=1, keepdim=True)+1e-6)
 
 
 def consistency_cam_loss(cam_from_aug, augmented_cam, mask=None):
+    if mask is not None:
+        cam_from_aug = cam_from_aug * mask
+        augmented_cam = augmented_cam * mask
+    cam_from_aug = cam_normalize(cam_from_aug.flatten(1))
+    augmented_cam = cam_normalize(augmented_cam.flatten(1))
+
+    pos = (cam_from_aug * augmented_cam).sum(1)
+    bsize = pos.shape[0]
+    neg = torch.mm(cam_from_aug, cam_from_aug.transpose(1, 0))
+    neg = neg[(1-torch.eye(bsize)).bool()].view(-1, bsize-1)
+    out = torch.cat((pos.view(bsize, 1), neg), dim=1)
+    
+    return nce_softmax_loss(out)
+
+def consistency_feat_loss(cam_from_aug, augmented_cam, mask=None):
     if mask is not None:
         cam_from_aug = cam_from_aug * mask
         augmented_cam = augmented_cam * mask
@@ -276,7 +294,7 @@ def cutmix(img_ulb, target, mask=None):
                 mask[u_rand_index[i], :, u_bbx1[i]:u_bbx2[i], u_bby1[i]:u_bby2[i]]
 
     del img_ulb, target
-
+    # import pdb; pdb.set_trace()
     if mask is not None:
         return mix_img_ulb, mix_target, mix_mask
     else:    

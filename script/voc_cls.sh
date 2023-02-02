@@ -66,9 +66,15 @@ CUDA_VISIBLE_DEVICES=${GPU} python3 eval.py \
 #####TODO######
 
 
-# # 3.5 Train IRN
+# 3.5 Train IRN
 # CUDA_VISIBLE_DEVICES=${GPU} python aff_prepare.py \
-#         --voc12_root 
+#   --voc12_root VOC2012 \
+#   --cam_dir train_log/${SESSION}/result/cam_npy \
+#   --out_crf $your_crf_alpha_dir 
+
+
+
+
 
 # # 4. Generate Segmentation pseudo label
 # python pseudo_label_gen.py \

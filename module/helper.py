@@ -38,7 +38,7 @@ def calc_score(pred, gt, mask=None, num_cls=21):
 def get_masks_by_confidence(cam):
     masks = []
     _pseudo_label = torch.softmax(cam, dim=1)
-    _max_probs, _ = torch.max(_pseudo_label, dim=1)
+    _max_probs, max_idx = torch.max(_pseudo_label, dim=1)
     masks.append(_max_probs.lt(0.4).float())
     masks.append(torch.logical_and(_max_probs.ge(0.4), _max_probs.lt(0.6)).float())
     masks.append(torch.logical_and(_max_probs.ge(0.6), _max_probs.lt(0.8)).float())
@@ -68,9 +68,3 @@ def calc_acc_byclass(cams, labels):
     acc_total = gtjresj.sum() / confusion.sum()
 
     return acc_by_class, acc_total, confusion
-    
-
-
-
-    confusion.sum(axis=0)
-    confusion.sum(axis=1)

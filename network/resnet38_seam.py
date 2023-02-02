@@ -11,6 +11,7 @@ class Net(network.resnet38d.Net):
         self.dropout7 = torch.nn.Dropout2d(0.5)
 
         self.fc8 = nn.Conv2d(4096, num_class, 1, bias=False)
+        self.proj_fc = nn.Conv2d(4096, 128, 1, bias=False)
 
         self.f8_3 = torch.nn.Conv2d(512, 64, 1, bias=False)
         self.f8_4 = torch.nn.Conv2d(1024, 128, 1, bias=False)
@@ -20,14 +21,15 @@ class Net(network.resnet38d.Net):
         torch.nn.init.kaiming_normal_(self.f8_3.weight)
         torch.nn.init.kaiming_normal_(self.f8_4.weight)
         torch.nn.init.xavier_uniform_(self.f9.weight, gain=4)
-        self.from_scratch_layers = [self.f8_3, self.f8_4, self.f9, self.fc8]
         self.not_training = [self.conv1a, self.b2, self.b2_1, self.b2_2]
+        self.from_scratch_layers = [self.fc8, self.proj_fc, self.f8_3, self.f8_4, self.f9]
 
-    def forward(self, img):
-        N, C, H, W = img.size()
+    def forward(self, img, require_feats_high=False):
         d = super().forward_as_dict(img)
-        cam = self.fc8(self.dropout7(d['conv6']))
-        n,c,h,w = cam.size()
+        feats_high = d['conv6']
+        feats = F.relu(self.proj_fc(feats_high), inplace=True)
+        cam = self.fc8(self.dropout7(feats_high))
+        n, c, h, w = cam.size()
 
         with torch.no_grad():
             cam_d = F.relu(cam.detach())
@@ -50,7 +52,10 @@ class Net(network.resnet38d.Net):
         pred_rv = F.avg_pool2d(cam_rv, kernel_size=(h, w), padding=0)
         pred_rv = pred_rv.view(pred_rv.size(0), -1)
 
-        return pred, cam, pred_rv, cam_rv
+        if not require_feats_high:
+            return pred, cam, pred_rv, cam_rv, feats
+        else:
+            return pred, cam, pred_rv, cam_rv, feats, feats_high
 
     def forward_cam(self, img):
         d = super().forward_as_dict(img)

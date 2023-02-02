@@ -66,7 +66,7 @@ def get_arguments():
     parser.add_argument('--train_ulb_list', default='', type=str)
     parser.add_argument('--mu', default=1.0, type=float) # ratio of ulb / lb data
 
-    parser.add_argument('--ulb_aug_type', default='strong', type=str) # None / weak / strong
+    parser.add_argument('--ulb_aug_type', default='strong', type=str) # None / weak / strong : 'aug_type'
     parser.add_argument('--n_strong_aug', default=5, type=int) # number of RandAug
     parser.add_argument('--use_cutmix', action='store_true', default=True) # Use CutMix
 
@@ -86,6 +86,10 @@ def get_arguments():
     parser.add_argument('--cdc_T', default=0.5, type=float) # Temperature of cdc loss
     parser.add_argument('--cdc_norm', action='store_true') # Normalize feature to calculate cdc loss
     parser.add_argument('--cdc_inter', action='store_true') # Calculate Inter-image pixel    
+    parser.add_argument('--anchor_k', default=None, type=int)
+    parser.add_argument('--anchor_thr', default=None, type=float)
+    parser.add_argument('--nn_l', default=None, type=int)
+    parser.add_argument('--sample_n', default=None, type=int)
     
     args = parser.parse_args()
 
@@ -175,21 +179,21 @@ if __name__ == '__main__':
         elif args.v2:
             train_seam2(train_loader, train_ulb_loader, val_loader, model, optimizer, max_step, args)
         else:
-            train_seam2(train_loader, val_loader, model, optimizer, max_step, args)
+            train_seam(train_loader, val_loader, model, optimizer, max_step, args)
     elif args.network_type == 'eps':
         if args.ssl:
             train_eps_ssl(train_loader, train_ulb_loader, val_loader, model, optimizer, max_step, args) ###
         elif args.v2:
             train_eps2(train_loader, train_ulb_loader, val_loader, model, optimizer, max_step, args)
         else:
-            train_eps2(train_loader, val_loader, model, optimizer, max_step, args)
+            train_eps(train_loader, val_loader, model, optimizer, max_step, args)
     elif args.network_type == 'contrast':
         if args.ssl:
             train_contrast_ssl(train_loader, train_ulb_loader, val_loader, model, optimizer, max_step, args) ###
         elif args.v2:
             train_contrast2(train_loader, train_ulb_loader, val_loader, model, optimizer, max_step, args)
         else:
-            train_contrast2(train_loader, val_loader, model, optimizer, max_step, args)
+            train_contrast(train_loader, val_loader, model, optimizer, max_step, args)
     else:
         raise Exception('No appropriate model type')
     

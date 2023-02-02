@@ -269,8 +269,8 @@ def validate_acc_by_class(args, model, data_loader, iter, tag='val'):
         # Logging
         num_by_c = [num_by_cr.sum(axis=1)[i].item() for i in range(len(class_list))]
         num_by_r = [num_by_cr.sum(axis=0)[i].item() for i in range(6)]
-        print(f"num by class : {num_by_c}")
-        print(f"num by range : {num_by_r}")
+        # print(f"num by class : {num_by_c}")
+        # print(f"num by range : {num_by_r}")
         print(f"mIoU         : {log_scalar['miou'] * 100:.2f}%")
         print(f"mPrecision   : {log_scalar['mprecision'] * 100:.2f}%")
         print(f"mRecall      : {log_scalar['mrecall'] * 100:.2f}%")

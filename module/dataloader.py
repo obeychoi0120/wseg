@@ -73,8 +73,14 @@ def get_dataloader(args):
     else:
         raise Exception("No appropriate train type")
 
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True,
-                              num_workers=args.num_workers, pin_memory=True, drop_last=True)
+    train_loader = DataLoader(
+        train_dataset, 
+        batch_size=args.batch_size, 
+        shuffle=True,
+        num_workers=args.num_workers, 
+        pin_memory=True, 
+        drop_last=True
+        )
     
     try:
         val_dataset = CLS_DATASET(
@@ -88,16 +94,23 @@ def get_dataloader(args):
                                     # imutils.CenterCrop(args.crop_size),
                                     imutils.HWC_to_CHW,
                                     torch.from_numpy
-            ]))
+                                    ])
+            )
         
         # Currently avaliable batch size 1
-        val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False,
-                                num_workers=args.num_workers, pin_memory=True, drop_last=True)
+        val_loader = DataLoader(
+            val_dataset, 
+            batch_size=1, 
+            shuffle=False,
+            num_workers=args.num_workers, 
+            pin_memory=True, 
+            drop_last=True
+            )
     except: # coco (no val labels in cls_labels.npy)
         print('No validation label list found. Train without validation dataloader.')
         val_loader = None
 
-    ### Unlabeled dataset ###
+    ######## Unlabeled dataset ########
     if args.train_ulb_list:
         train_ulb_dataset = ImageDataset(
             dataset             = args.ulb_dataset,
@@ -107,9 +120,15 @@ def get_dataloader(args):
             resize_size         = args.resize_size,
             aug_type            = args.ulb_aug_type,
             n_strong_aug        = args.n_strong_aug
-        )
-        train_ulb_loader = DataLoader(train_ulb_dataset, batch_size=int(args.batch_size*args.mu), shuffle=True,
-                                      num_workers=args.num_workers, pin_memory=True, drop_last=True)
+            )
+        train_ulb_loader = DataLoader(
+            train_ulb_dataset, 
+            batch_size=int(args.batch_size*args.mu), 
+            shuffle=True,
+            num_workers=args.num_workers, 
+            pin_memory=True, 
+            drop_last=True
+            )
     else: 
         train_ulb_loader = None
     

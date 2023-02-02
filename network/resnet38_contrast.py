@@ -30,14 +30,10 @@ class Net(network.resnet38d.Net):
         d = super().forward_as_dict(img)
         feats_high = d['conv6']
         feats = F.relu(self.proj_fc(feats_high), inplace=True)
-
+        cam = self.fc8(self.dropout7(feats_high))
+        n, c, h, w = cam.size()
         ### remove feature discintiveness ###
         # feats_high = feats_high - feats_high.mean(dim=(1,2), keepdim=True).detach()
-
-        cam = self.fc8(feats_high)
-
-        n, c, h, w = cam.size()
-
         with torch.no_grad():
             cam_d = F.relu(cam.detach())
             cam_d_max = torch.max(cam_d.view(n, c, -1), dim=-1)[0].view(n, c, 1, 1)+1e-5
