@@ -4,7 +4,7 @@ import torch
 
 
 def get_model(args):
-    model = getattr(importlib.import_module(args.network), 'Net')(args.num_sample)
+    model = getattr(importlib.import_module(args.network), 'Net')(num_class=args.num_sample, require_feats_high=args.require_feats_high)
 
     if args.weights[-7:] == '.params':
         assert args.network in ["network.resnet38_cls",

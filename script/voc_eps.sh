@@ -1,11 +1,13 @@
 # NEED TO SET
-DATASET_ROOT=../../dataset/VOC/VOCdevkit/VOC2012
-WEIGHT_ROOT=./pretrained
+DATASET_ROOT=../data/VOCdevkit/VOC2012/
+WEIGHT_ROOT=pretrained
 SALIENCY_ROOT=./SALImages
-GPU=0,1,2,3
+
+GPU=0,1
+
 
 # Default setting
-SESSION="eps"
+SESSION="eps_cutoff0.95_acc+_154"
 IMG_ROOT=${DATASET_ROOT}/JPEGImages
 SAL_ROOT=${DATASET_ROOT}/${SALIENCY_ROOT}
 BACKBONE=resnet38_eps
@@ -25,10 +27,13 @@ CUDA_VISIBLE_DEVICES=${GPU} python3 contrast_train.py \
   --tau             0.4 \
   --max_iters       10000 \
   --iter_size       2 \
-  --batch_size      8
+  --batch_size      8 \
+  --p_cutoff        0.95 \
+  --ssl                  \
+  --val_times       50  \
 
 
-DATA=train_aug # train / train_aug
+DATA=train # train / train_aug
 TRAINED_WEIGHT=train_log/${SESSION}/checkpoint.pth
 # 2. inference CAM (train/train_aug/val)
 CUDA_VISIBLE_DEVICES=${GPU} python3 contrast_infer.py \
@@ -37,7 +42,7 @@ CUDA_VISIBLE_DEVICES=${GPU} python3 contrast_infer.py \
     --network               network.${BACKBONE} \
     --weights               ${TRAINED_WEIGHT} \
     --thr                   0.20 \
-    --n_gpus                4 \
+    --n_gpus                2 \
     --n_processes_per_gpu   1 1 1 1 \
     --cam_png               train_log/${SESSION}/result/cam_png \
     --cam_npy               train_log/${SESSION}/result/cam_npy \

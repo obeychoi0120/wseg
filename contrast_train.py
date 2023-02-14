@@ -11,11 +11,9 @@ from module.dataloader import get_dataloader
 from module.model import get_model
 from module.optimizer import get_optimizer
 from module.train import train_cls, train_seam,  train_eps, train_contrast, \
-    train_seam2, train_eps2, train_contrast2, train_cls2, \
-    train_cls_ssl, train_seam_ssl, train_eps_ssl, train_contrast_ssl
+                        train_seam2, train_eps2, train_contrast2, train_cls2, \
+                        train_cls_ssl, train_seam_ssl, train_eps_ssl, train_contrast_ssl
 
-cudnn.enabled = True
-torch.backends.cudnn.benchmark = False
 
 dataset_list = ['voc12', 'coco']
 
@@ -57,8 +55,7 @@ def get_arguments():
     parser.add_argument('--alpha', default=0.5, type=float)
 
     ### Semi-supervised Learning ###
-    parser.add_argument('--v2', action='store_true')
-    parser.add_argument('--ssl', action='store_true')
+    parser.add_argument('--mode', required=True, choices=['base', 'v2', 'ssl'])
     parser.add_argument('--ssl_type', nargs='+', default=[3], type=int) # 1: MT, 2: pixel-wise MT, 3: fixmatch
     parser.add_argument("--ulb_dataset", default=None, choices=dataset_list, type=str)
     parser.add_argument('--ulb_data_root', default=None, type=str)
@@ -86,10 +83,15 @@ def get_arguments():
     parser.add_argument('--cdc_T', default=0.5, type=float) # Temperature of cdc loss
     parser.add_argument('--cdc_norm', action='store_true') # Normalize feature to calculate cdc loss
     parser.add_argument('--cdc_inter', action='store_true') # Calculate Inter-image pixel    
+    
+    ####    Label Propagation   ####
+    parser.add_argument('--PL', default=None, type=str)
     parser.add_argument('--anchor_k', default=None, type=int)
     parser.add_argument('--anchor_thr', default=None, type=float)
     parser.add_argument('--nn_l', default=None, type=int)
     parser.add_argument('--sample_n', default=None, type=int)
+    parser.add_argument('--use_sal', action='store_true')
+    parser.add_argument('--require_feats_high', action='store_true')
     
     args = parser.parse_args()
 
@@ -100,7 +102,7 @@ def get_arguments():
         args.num_sample = 81
     
     # Unlabeled Dataset
-    if args.ssl:
+    if args.mode == 'ssl':
         if args.ulb_dataset is None:
             args.ulb_dataset = args.dataset
         if args.ulb_data_root is None:
@@ -151,6 +153,7 @@ if __name__ == '__main__':
     max_step = (num_data // args.batch_size) * args.max_epoches
 
     # Load (ImageNet) Pretrained Model
+
     model = get_model(args)
 
     # Set optimizer
@@ -167,30 +170,33 @@ if __name__ == '__main__':
     
     # Train
     if args.network_type == 'cls':
-        if args.ssl:
+        if args.mode == 'ssl':
             train_cls_ssl(train_loader, train_ulb_loader, val_loader, model, optimizer, max_step, args)
-        elif args.v2:
+        elif args.mode == 'v2':
             train_cls2(train_loader, train_ulb_loader, val_loader, model, optimizer, max_step, args)
         else:
             train_cls(train_loader, val_loader, model, optimizer, max_step, args)
+    
     elif args.network_type == 'seam':
-        if args.ssl:
+        if args.mode == 'ssl':
             train_seam_ssl(train_loader, train_ulb_loader, val_loader, model, optimizer, max_step, args)
-        elif args.v2:
+        elif args.mode == 'v2':
             train_seam2(train_loader, train_ulb_loader, val_loader, model, optimizer, max_step, args)
         else:
             train_seam(train_loader, val_loader, model, optimizer, max_step, args)
+    
     elif args.network_type == 'eps':
-        if args.ssl:
-            train_eps_ssl(train_loader, train_ulb_loader, val_loader, model, optimizer, max_step, args) ###
-        elif args.v2:
+        if args.mode == 'ssl':
+            train_eps_ssl(train_loader, train_ulb_loader, val_loader, model, optimizer, max_step, args) 
+        elif args.mode == 'v2':
             train_eps2(train_loader, train_ulb_loader, val_loader, model, optimizer, max_step, args)
         else:
             train_eps(train_loader, val_loader, model, optimizer, max_step, args)
+    
     elif args.network_type == 'contrast':
-        if args.ssl:
-            train_contrast_ssl(train_loader, train_ulb_loader, val_loader, model, optimizer, max_step, args) ###
-        elif args.v2:
+        if args.mode == 'ssl':
+            train_contrast_ssl(train_loader, train_ulb_loader, val_loader, model, optimizer, max_step, args) 
+        elif args.mode == 'v2':
             train_contrast2(train_loader, train_ulb_loader, val_loader, model, optimizer, max_step, args)
         else:
             train_contrast(train_loader, val_loader, model, optimizer, max_step, args)

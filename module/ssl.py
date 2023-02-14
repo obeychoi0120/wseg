@@ -60,7 +60,7 @@ def get_ssl_loss(args, iteration, pred_s=None, pred_t=None, cam_s=None, cam_t=No
         losses['loss_cdc'], losses['mask_cdc_pos'], losses['mask_cdc_neg'] = class_discriminative_contrastive_loss(cam_s, feat_s, args.p_cutoff, inter=args.cdc_inter, temperature=args.cdc_T, normalize=args.cdc_norm)
         losses['loss_ssl'] += losses['loss_cdc'] * args.cdc_lambda
 
-    return losses, cutoff
+    return losses
     
 
 def consistency_loss(logits_s, logits_t, name='L2', T=1.0, p_cutoff=0.0, \

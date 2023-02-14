@@ -45,8 +45,21 @@ def get_masks_by_confidence(cam):
     masks.append(torch.logical_and(_max_probs.ge(0.8), _max_probs.lt(0.95)).float())
     masks.append(torch.logical_and(_max_probs.ge(0.95), _max_probs.lt(0.99)).float())
     masks.append(_max_probs.ge(0.99).float())
-    return masks, _max_probs
-
+    return masks
+    
+def get_nn_mask(cam_tea, anchor_k):
+    pseudo_label = torch.softmax(cam_tea, dim=1)
+    max_probs, _ = torch.max(pseudo_label, dim=1)
+    nn_mask = torch.zeros_like(max_probs, dtype=torch.long)
+    for i in range(len(max_probs)):
+        max_prob = max_probs[i]
+        anc_values, anc_idx = max_prob.flatten().topk(anchor_k)
+        anc_idx = np.array(np.unravel_index(anc_idx.cpu().numpy(), max_prob.shape)).T
+        for idx in anc_idx:
+            h, w = idx[0], idx[1]
+            nn_mask[i, h, w] = 1
+    return nn_mask
+                    
 def calc_metrics_val(cams, labels): 
     confusion = calc_semantic_segmentation_confusion(cams, labels)
     gtj = confusion.sum(axis=1)     # P
@@ -68,3 +81,22 @@ def calc_acc_byclass(cams, labels):
     acc_total = gtjresj.sum() / confusion.sum()
 
     return acc_by_class, acc_total, confusion
+
+
+
+def get_nn_mask_old(feat_tea, feat_stu, cam_tea, anchor_k, nn_l):    
+    assert feat_tea.shape == feat_stu.shape
+    nn_mask = torch.zeros_like(feat_tea, dtype=torch.long)
+    pseudo_label = torch.softmax(cam_tea, dim=1)
+    max_probs, _ = torch.max(pseudo_label, dim=1)
+    for max_prob in max_probs:
+        anc_values, _ = max_prob.flatten().topk(anchor_k)
+        # 전체 Batch, Channel의 feature space에서 anc와 가장 가까운 top L 개를 뽑음
+        for anc in anc_values:
+            dist = torch.abs(anc - feat_stu).flatten()
+            dis, idx = dist.topk(nn_l, largest=False)
+            nn_idx = np.array(np.unravel_index(idx.cpu().numpy(), feat_stu.shape)).T
+            for idx in nn_idx:
+                n, c, h, w = idx[0], idx[1], idx[2], idx[3]
+                nn_mask[n, c, h, w] = 1
+    return nn_mask
