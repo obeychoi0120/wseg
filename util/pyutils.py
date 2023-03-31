@@ -1,6 +1,6 @@
 import sys
 import time
-
+import datetime
 
 class Logger(object):
     def __init__(self, outfile):
@@ -29,9 +29,9 @@ class AverageMeter:
 
     def get(self, *keys):
         if len(keys) == 1:
-            return self.__data[keys[0]][0] / self.__data[keys[0]][1]
+            return self.__data[keys[0]][0] / (self.__data[keys[0]][1] + 1e-6)
         else:
-            v_list = [self.__data[k][0] / self.__data[k][1] for k in keys]
+            v_list = [self.__data[k][0] / (self.__data[k][1] + 1e-6) for k in keys]
             return tuple(v_list)
 
     def pop(self, key=None):
@@ -55,7 +55,7 @@ class Timer:
         if starting_msg is not None:
             print(starting_msg, time.ctime(time.time()))
 
-    def update_progress(self, progress):
+    def update_progress(self, progress): 
         self.elapsed = time.time() - self.start
         self.est_total = self.elapsed / progress
         self.est_remaining = self.est_total - self.elapsed
@@ -63,6 +63,9 @@ class Timer:
 
     def str_est_finish(self):
         return str(time.ctime(self.est_finish))
+
+    def get_est_remain(self):
+        return str(datetime.timedelta(seconds=int(self.est_remaining)))
 
     def get_stage_elapsed(self):
         return time.time() - self.stage_start

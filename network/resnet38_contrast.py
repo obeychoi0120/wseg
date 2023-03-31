@@ -1,25 +1,19 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
 import network.resnet38d
 
-
 class Net(network.resnet38d.Net):
-    def __init__(self, num_class=21, require_feats_high=False):
+    def __init__(self, num_class=21):
         super().__init__()
         self.fc8 = nn.Conv2d(4096, num_class, 1, bias=False)
-        self.require_feats_high = require_feats_high
         self.proj_fc = nn.Conv2d(4096, 128, 1, bias=False)
-        self.proj_fc_2 = nn.Conv2d(128, num_class, 1, bias=False)
-
         self.f8_3 = torch.nn.Conv2d(512, 64, 1, bias=False)
         self.f8_4 = torch.nn.Conv2d(1024, 128, 1, bias=False)
         self.f9 = torch.nn.Conv2d(192+3, 192, 1, bias=False)
 
         torch.nn.init.xavier_uniform_(self.fc8.weight)
         torch.nn.init.xavier_uniform_(self.proj_fc.weight)
-        torch.nn.init.xavier_uniform_(self.proj_fc_2.weight)
         torch.nn.init.kaiming_normal_(self.f8_3.weight)
         torch.nn.init.kaiming_normal_(self.f8_4.weight)
         torch.nn.init.xavier_uniform_(self.f9.weight, gain=4)
@@ -34,8 +28,11 @@ class Net(network.resnet38d.Net):
 
         ### remove feature discintiveness ###
         # feats_high = feats_high - feats_high.mean(dim=(1,2), keepdim=True).detach()
+
         cam = self.fc8(feats_high)
+
         n, c, h, w = cam.size()
+
         with torch.no_grad():
             cam_d = F.relu(cam.detach())
             cam_d_max = torch.max(cam_d.view(n, c, -1), dim=-1)[0].view(n, c, 1, 1)+1e-5
@@ -57,20 +54,38 @@ class Net(network.resnet38d.Net):
         pred_rv = F.avg_pool2d(cam_rv, kernel_size=(h, w), padding=0)
         pred_rv = pred_rv.view(pred_rv.size(0), -1)
 
-        if self.require_feats_high:
-            return pred, cam, pred_rv, cam_rv, feats_high            
-        else:
+        if not require_feats_high:
             return pred, cam, pred_rv, cam_rv, feats
+        else:
+            return pred, cam, pred_rv, cam_rv, feats, feats_high
 
-    def forward_cam(self, x): 
+    def forward_cam(self, x):
         x = super().forward(x)
         cam = self.fc8(x)
 
         return cam
 
-    def forward_cam_from_feat(self, feats):
-        cam = self.proj_fc_2(feats)
-        return cam
+    # def forward_cam(self, img):
+    #     d = super().forward_as_dict(img)
+    #     cam = self.fc8(d['conv6'])
+    #     # return cam
+    #     n,c,h,w = cam.size()
+    #     with torch.no_grad():
+    #         cam_d = F.relu(cam.detach())
+    #         cam_d_max = torch.max(cam_d.view(n, c, -1), dim=-1)[0].view(n, c, 1, 1)+1e-5
+    #         cam_d_norm = F.relu(cam_d - 1e-5) / cam_d_max
+    #         cam_d_norm[:, -1, :, :] = 1 - torch.max(cam_d_norm[:, :-1, :, :], dim=1)[0]
+    #         cam_max = torch.max(cam_d_norm[:, :-1, :, :], dim=1, keepdim=True)[0]
+    #         cam_d_norm[:, :-1, :, :][cam_d_norm[:, :-1, :, :] < cam_max] = 0
+
+    #         f8_3 = F.relu(self.f8_3(d['conv4'].detach()), inplace=True)
+    #         f8_4 = F.relu(self.f8_4(d['conv5'].detach()), inplace=True)
+    #         x_s = F.interpolate(img, (h, w), mode='bilinear', align_corners=True)
+    #         f = torch.cat([x_s, f8_3, f8_4], dim=1)
+    #         cam_rv = self.PCM(cam_d_norm, f)
+
+    #     return cam_rv
+
 
     def get_parameter_groups(self):
         groups = ([], [], [], [])

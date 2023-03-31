@@ -37,15 +37,13 @@ def get_ssl_loss(args, iteration, pred_s=None, pred_t=None, cam_s=None, cam_t=No
     ######                  loss_ssl만 사용                        ######
     ######                  for PPC, SEAM                          ######
     if 3 in args.ssl_type:
-        ratio = float(np.clip((iteration/args.max_iters)+1e-9 , 0., 1.))    # 0~1 
-        if args.last_p_cutoff:
-            cutoff = args.p_cutoff - ratio*(args.p_cutoff - args.last_p_cutoff)  # last_p_cutoff: 0.8
-        else:
-            cutoff = args.p_cutoff
+        # ratio = float(np.clip((iteration/args.max_iters)+1e-7 , 0., 1.)) 
+        # if args.last_p_cutoff:
+        #     cutoff = args.p_cutoff - ratio*(args.p_cutoff - args.last_p_cutoff)
+        # else:
+        #   cutoff = args.p_cutoff
 
-        losses['loss_ce'], losses['loss_pl'], losses['mask_pl'], _, pseudo_label = \
-            consistency_loss(cam_s, cam_t, 'ce', args.T, cutoff, args.soft_label)
-        # org_loss.mean(), masked_loss.mean(), mask.mean(), select, max_idx.long()
+        losses['loss_org'], losses['loss_pl'], losses['mask_pl'], _ = consistency_loss(cam_s, cam_t, 'ce', args.T, args.p_cutoff, args.soft_label, mask)
         losses['loss_ssl'] += losses['loss_pl'] * args.ssl_lambda
 
     ######           4. T(f(x)) <=> f(T(x)) InfoNCE loss          ######
@@ -61,50 +59,46 @@ def get_ssl_loss(args, iteration, pred_s=None, pred_t=None, cam_s=None, cam_t=No
         losses['loss_ssl'] += losses['loss_cdc'] * args.cdc_lambda
 
     return losses
-    
 
-def consistency_loss(logits_s, logits_t, name='L2', T=1.0, p_cutoff=0.0, \
-                        use_soft_label=False, mask=None):
+def consistency_loss(logits_s, logits_t, name='L2', T=1.0, p_cutoff=0.0, use_soft_label=False, mask=None):
     logits_t = logits_t.detach()
-    if name == 'L2':
+    if name == 'ce':
+        pseudo_label = torch.softmax(logits_t, dim=1)
+        # pseudo_label = logits_t
+        max_probs, max_idx = torch.max(pseudo_label, dim=1)
+        # mask = torch.where(max_idx < 20, mask, torch.zeros_like(mask)) # ignore background confidence
+        if not use_soft_label:  # 0217 current
+            org_loss = ce_loss(logits_s, max_idx, False, reduction='none')
+            masked_loss = (org_loss * mask).mean()
+            # masked_loss = (org_loss * mask).sum() / (mask.sum() + 1e-6)
+        else:   # soft label
+            pseudo_label = torch.softmax(logits_t / T, dim=1)
+            org_loss = ce_loss(logits_s, pseudo_label, use_soft_label)
+            masked_loss = ce_loss(logits_s, pseudo_label, use_soft_label) * mask
+        return org_loss, masked_loss, mask.mean(), max_idx.long()
+    
+    elif name == 'L2':
         assert logits_s.size() == logits_t.size()
         if mask is not None:
             masked_loss = F.mse_loss(logits_s, logits_t, reduction='none') * mask
             return masked_loss.mean()
         else:
             return F.mse_loss(logits_s, logits_t, reduction='mean')
-
-    elif name == 'ce':
-        pseudo_label = torch.softmax(logits_t, dim=1)
-        max_probs, max_idx = torch.max(pseudo_label, dim=1)
-        mask = max_probs.ge(p_cutoff).float()   # greater or equal than
-        #mask = torch.where(max_idx < 20, mask, torch.zeros_like(mask)) # ignore background confidence
-        select = max_probs.ge(p_cutoff).long()
-        # strong_prob, strong_idx = torch.max(torch.softmax(logits_s, dim=-1), dim=-1)
-        # strong_select = strong_prob.ge(p_cutoff).long()
-        # select = select * strong_select * (strong_idx == max_idx)
-        if not use_soft_label:
-            org_loss = ce_loss(logits_s, max_idx, use_soft_label, reduction='none')
-            masked_loss = org_loss * mask
-        else:   # soft label
-            pseudo_label = torch.softmax(logits_t / T, dim=1)
-            org_loss = ce_loss(logits_s, pseudo_label, use_soft_label)
-            masked_loss = ce_loss(logits_s, pseudo_label, use_soft_label) * mask
         
-        return org_loss, masked_loss.mean(), mask.mean(), select, max_idx.long()
-
-
 def ce_loss(preds, targets, use_soft_label=False, reduction='none'):
+    '''
+    preds - Predicted unnormalized logits
+    target - GT class indices or class prob.
+    '''
     if not use_soft_label:
-        log_pred = F.log_softmax(preds, dim=1)
-        return F.nll_loss(log_pred, targets, reduction=reduction)
-        # return F.cross_entropy(logits, targets, reduction=reduction) this is unstable
+        return F.cross_entropy(preds, targets, reduction=reduction) # this is unstable
+        # log_pred = F.log_softmax(preds, dim=1)
+        # return F.nll_loss(log_pred, targets, reduction=reduction)
     else:
         assert preds.shape == targets.shape
         log_pred = F.log_softmax(preds, dim=1)
         nll_loss = torch.sum(-targets * log_pred, dim=1)
         return nll_loss
-
 
 class NCESoftmaxLoss(nn.Module): ### useless
     """Softmax cross-entropy loss (a.k.a., info-NCE loss in CPC paper)"""
@@ -114,14 +108,12 @@ class NCESoftmaxLoss(nn.Module): ### useless
         self.criterion = nn.CrossEntropyLoss()
 
     def forward(self, x):
-        # pdb.set_trace()
         bsz = x.shape[0]
         x = x.squeeze()
         x = torch.div(x, self.T)
         label = torch.zeros([bsz]).cuda().long()
         loss = self.criterion(x, label)
         return loss
-
 
 def transform_cam(cam, i, j, h, w, hor_flip, args): ### useless
     gpu_batch_len = cam.size(0)
@@ -186,46 +178,6 @@ def consistency_feat_loss(cam_from_aug, augmented_cam, mask=None):
     out = torch.cat((pos.view(bsize, 1), neg), dim=1)
     
     return nce_softmax_loss(out)
-
-
-# Implementation from https://fyubang.com/2019/06/01/ema/
-class EMA:
-    def __init__(self, model, decay):
-        self.model = model
-        self.decay = decay
-        self.shadow = {}
-        self.backup = {}
-
-    def load(self, ema_model):
-        for name, param in ema_model.named_parameters():
-            self.shadow[name] = param.data.clone()
-
-    def register(self):
-        for name, param in self.model.named_parameters():
-            if param.requires_grad:
-                self.shadow[name] = param.data.clone()
-
-    def update(self):
-        for name, param in self.model.named_parameters():
-            if param.requires_grad:
-                assert name in self.shadow
-                new_average = (1.0 - self.decay) * param.data + self.decay * self.shadow[name]
-                self.shadow[name] = new_average.clone()
-
-    def apply_shadow(self):
-        for name, param in self.model.named_parameters():
-            if param.requires_grad:
-                assert name in self.shadow
-                self.backup[name] = param.data
-                param.data = self.shadow[name]
-
-    def restore(self):
-        for name, param in self.model.named_parameters():
-            if param.requires_grad:
-                assert name in self.backup
-                param.data = self.backup[name]
-        self.backup = {}
-
 
 def apply_strong_tr(img, ops, strong_transforms=None, fill_background=False):
     if len(ops):
@@ -366,3 +318,108 @@ def class_discriminative_contrastive_loss(cam, feat, p_cutoff=0., inter=False, t
     # # Final loss
     loss = - pos_mean_log_prob # (temperature / base_temperature)
     return loss.mean(), mask.mean().detach(), logit_mask.mean().detach()
+
+# class EMA(object):
+#     '''
+#         apply expontential moving average to a model. This should have same function as the `tf.train.ExponentialMovingAverage` of tensorflow.
+#         usage:
+#             model = resnet()
+#             model.train()
+#             ema = EMA(model, 0.9999)
+#             ....
+#             for img, lb in dataloader:
+#                 loss = ...
+#                 loss.backward()
+#                 optim.step()
+#                 ema.update_params() # apply ema
+#             evaluate(model)  # evaluate with original model as usual
+#             ema.apply_shadow() # copy ema status to the model
+#             evaluate(model) # evaluate the model with ema paramters
+#             ema.restore() # resume the model parameters
+#         args:
+#             - model: the model that ema is applied
+#             - alpha: each parameter p should be computed as p_hat = alpha * p + (1. - alpha) * p_hat
+#             - buffer_ema: whether the model buffers should be computed with ema method or just get kept
+#         methods:
+#             - update_params(): apply ema to the model, usually call after the optimizer.step() is called
+#             - apply_shadow(): copy the ema processed parameters to the model
+#             - restore(): restore the original model parameters, this would cancel the operation of apply_shadow()
+#     '''
+#     def __init__(self, model, alpha, buffer_ema=True):
+#         self.step = 0
+#         self.model = model
+#         self.alpha = alpha
+#         self.buffer_ema = buffer_ema
+#         self.shadow = self.get_model_state()
+#         self.backup = {}
+#         self.param_keys = [k for k, _ in self.model.named_parameters()]
+#         self.buffer_keys = [k for k, _ in self.model.named_buffers()]
+
+#     def update_params(self):
+#         decay = min(self.alpha, (self.step + 1) / (self.step + 10))
+#         state = self.model.state_dict()
+#         for name in self.param_keys:
+#             self.shadow[name].copy_(
+#                 decay * self.shadow[name]
+#                 + (1 - decay) * state[name]
+#             )
+#         for name in self.buffer_keys:
+#             if self.buffer_ema:
+#                 self.shadow[name].copy_(
+#                     decay * self.shadow[name]
+#                     + (1 - decay) * state[name]
+#                 )
+#             else:
+#                 self.shadow[name].copy_(state[name])
+#         self.step += 1
+
+#     def apply_shadow(self):
+#         self.backup = self.get_model_state()
+#         self.model.load_state_dict(self.shadow)
+
+#     def restore(self):
+#         self.model.load_state_dict(self.backup)
+
+#     def get_model_state(self):
+#         return {
+#             k: v.clone().detach()
+#             for k, v in self.model.state_dict().items()
+#         }
+
+# Implementation from https://fyubang.com/2019/06/01/ema/
+class EMA:
+    def __init__(self, model, decay):
+        self.model = model
+        self.decay = decay
+        self.shadow = {}
+        self.backup = {}
+
+    def load(self, ema_model):
+        for name, param in ema_model.named_parameters():
+            self.shadow[name] = param.data.clone()
+
+    def register(self):
+        for name, param in self.model.named_parameters():
+            if param.requires_grad:
+                self.shadow[name] = param.data.clone()
+
+    def update(self):
+        for name, param in self.model.named_parameters():
+            if param.requires_grad:
+                assert name in self.shadow
+                new_average = (1.0 - self.decay) * param.data + self.decay * self.shadow[name]
+                self.shadow[name] = new_average.clone()
+
+    def apply_shadow(self):
+        for name, param in self.model.named_parameters():
+            if param.requires_grad:
+                assert name in self.shadow
+                self.backup[name] = param.data
+                param.data = self.shadow[name]
+
+    def restore(self):
+        for name, param in self.model.named_parameters():
+            if param.requires_grad:
+                assert name in self.backup
+                param.data = self.backup[name]
+        self.backup = {}

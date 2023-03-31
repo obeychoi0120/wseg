@@ -10,9 +10,7 @@ from util import pyutils
 from module.dataloader import get_dataloader
 from module.model import get_model
 from module.optimizer import get_optimizer
-from module.train import train_cls, train_seam,  train_eps, train_contrast, \
-                        train_seam2, train_eps2, train_contrast2, train_cls2, \
-                        train_cls_ssl, train_seam_ssl, train_eps_ssl, train_contrast_ssl
+from module.train import train, train_ssl
 
 
 dataset_list = ['voc12', 'coco']
@@ -59,22 +57,23 @@ def get_arguments():
     parser.add_argument('--ssl_type', nargs='+', default=[3], type=int) # 1: MT, 2: pixel-wise MT, 3: fixmatch
     parser.add_argument("--ulb_dataset", default=None, choices=dataset_list, type=str)
     parser.add_argument('--ulb_data_root', default=None, type=str)
-    parser.add_argument('--ulb_saliency_root', default=None, type=str) #?
+    parser.add_argument('--ulb_saliency_root', default=None, type=str)
     parser.add_argument('--train_ulb_list', default='', type=str)
     parser.add_argument('--mu', default=1.0, type=float) # ratio of ulb / lb data
 
     parser.add_argument('--ulb_aug_type', default='strong', type=str) # None / weak / strong : 'aug_type'
     parser.add_argument('--n_strong_aug', default=5, type=int) # number of RandAug
-    parser.add_argument('--use_cutmix', action='store_true', default=True) # Use CutMix
+    parser.add_argument('--use_cutmix', action='store_true') # Use CutMix
 
-    parser.add_argument('--ema_m', default=0.999, type=float) # ratio of ulb / lb data
+    parser.add_argument('--use_ema',action='store_true') 
+    parser.add_argument('--ema_m', default=0.999, type=float) 
     parser.add_argument('--mt_warmup', type=float, default=0.4) # mean teacher warmup
     parser.add_argument('--mt_lambda', default=50.0, type=float) # ratio of ssl loss
     parser.add_argument('--mt_p', default=0., type=float) # ratio of ssl loss
-    
     parser.add_argument('--ssl_lambda', default=1.0, type=float) # ratio of ssl loss
-    parser.add_argument('--p_cutoff', default=0.99, type=float)
-    parser.add_argument('--last_p_cutoff', type=float)
+    parser.add_argument('--p_cutoff', default=0.95, type=float)
+
+    parser.add_argument('--attn_cutoff', type=float)
     parser.add_argument('--th_scheduler', action='store_true') # Threshold Scheduler
     parser.add_argument('--T', type=float, default=0.5)
     parser.add_argument('--soft_label', action='store_true') # hard label(Default) or soft label
@@ -85,12 +84,10 @@ def get_arguments():
     parser.add_argument('--cdc_inter', action='store_true') # Calculate Inter-image pixel    
     
     ####    Label Propagation   ####
-    parser.add_argument('--PL', default=None, type=str)
-    parser.add_argument('--anchor_k', default=None, type=int)
-    parser.add_argument('--anchor_thr', default=None, type=float)
-    parser.add_argument('--nn_l', default=None, type=int)
-    parser.add_argument('--sample_n', default=None, type=int)
-    parser.add_argument('--use_sal', action='store_true')
+    parser.add_argument('--use_attn', action='store_true')
+    parser.add_argument('--attn_type', type=str, choices=['e', 'et', 'ef', 'e-f', 'etf', 'et-f', 'gau'])
+    parser.add_argument('--attn_temp', type = float, default=0.01)
+    parser.add_argument('--focal_p', default=256, type=int)
     parser.add_argument('--require_feats_high', action='store_true')
     
     args = parser.parse_args()
@@ -142,6 +139,17 @@ if __name__ == '__main__':
     pyutils.Logger(os.path.join(args.log_folder, 'log_cls.log'))
     shutil.copyfile('./contrast_train.py', os.path.join(args.log_folder, 'contrast_train.py'))
     shutil.copyfile('./module/train.py', os.path.join(args.log_folder, 'train.py'))
+    shutil.copyfile('./module/ssl.py', os.path.join(args.log_folder, 'ssl.py'))
+    shutil.copyfile('./module/helper.py', os.path.join(args.log_folder, 'helper.py'))
+    if 'seam' in args.network:
+        shutil.copyfile('./script/voc_seam.sh', os.path.join(args.log_folder, 'voc_seam.sh'))
+        shutil.copyfile('./network/resnet38_seam.py', os.path.join(args.log_folder, 'resnet38_seam.py'))
+    elif 'contrast' in args.network:
+        shutil.copyfile('./script/voc_ppc.sh', os.path.join(args.log_folder, 'voc_ppc.sh'))
+        shutil.copyfile('./network/resnet38_contrast.py', os.path.join(args.log_folder, 'resnet38_contrast.py'))
+    elif 'eps' in args.network:
+        shutil.copyfile('./script/voc_eps.sh', os.path.join(args.log_folder, 'voc_eps.sh'))
+        shutil.copyfile('./network/resnet38_eps.py', os.path.join(args.log_folder, 'resnet38_eps.py'))
 
     # Load dataset (train_ulb_loader=None where args.ssl==False)
     train_loader, train_ulb_loader, val_loader = get_dataloader(args) ###
@@ -153,7 +161,6 @@ if __name__ == '__main__':
     max_step = (num_data // args.batch_size) * args.max_epoches
 
     # Load (ImageNet) Pretrained Model
-
     model = get_model(args)
 
     # Set optimizer
@@ -167,40 +174,9 @@ if __name__ == '__main__':
     print(vars(args))
     if args.use_wandb:
         wandb.config.update(args)
-    
     # Train
-    if args.network_type == 'cls':
-        if args.mode == 'ssl':
-            train_cls_ssl(train_loader, train_ulb_loader, val_loader, model, optimizer, max_step, args)
-        elif args.mode == 'v2':
-            train_cls2(train_loader, train_ulb_loader, val_loader, model, optimizer, max_step, args)
-        else:
-            train_cls(train_loader, val_loader, model, optimizer, max_step, args)
-    
-    elif args.network_type == 'seam':
-        if args.mode == 'ssl':
-            train_seam_ssl(train_loader, train_ulb_loader, val_loader, model, optimizer, max_step, args)
-        elif args.mode == 'v2':
-            train_seam2(train_loader, train_ulb_loader, val_loader, model, optimizer, max_step, args)
-        else:
-            train_seam(train_loader, val_loader, model, optimizer, max_step, args)
-    
-    elif args.network_type == 'eps':
-        if args.mode == 'ssl':
-            train_eps_ssl(train_loader, train_ulb_loader, val_loader, model, optimizer, max_step, args) 
-        elif args.mode == 'v2':
-            train_eps2(train_loader, train_ulb_loader, val_loader, model, optimizer, max_step, args)
-        else:
-            train_eps(train_loader, val_loader, model, optimizer, max_step, args)
-    
-    elif args.network_type == 'contrast':
-        if args.mode == 'ssl':
-            train_contrast_ssl(train_loader, train_ulb_loader, val_loader, model, optimizer, max_step, args) 
-        elif args.mode == 'v2':
-            train_contrast2(train_loader, train_ulb_loader, val_loader, model, optimizer, max_step, args)
-        else:
-            train_contrast(train_loader, val_loader, model, optimizer, max_step, args)
+    if args.mode in ['ssl', 'v2']:
+        train_ssl(train_loader, train_ulb_loader, val_loader, model, optimizer, max_step, args)
     else:
-        raise Exception('No appropriate model type')
-    
+        train(train_loader, val_loader, model, optimizer, max_step, args)
     print('Train Done.')

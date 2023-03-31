@@ -3,13 +3,14 @@ DATASET_ROOT=../data/VOCdevkit/VOC2012/
 WEIGHT_ROOT=pretrained
 SALIENCY_ROOT=./SALImages
 
-GPU=0,1
+GPU=0
 
 # Default setting
 IMG_ROOT=${DATASET_ROOT}/JPEGImages
 SAL_ROOT=${DATASET_ROOT}/${SALIENCY_ROOT}
 BACKBONE=resnet38_contrast
-SESSION="P_ppc+eps_0.95_ws_k10_conv+_153"
+SESSION="0331/P_eps+ppc_nocutmix_154"
+# SESSION="test"
 BASE_WEIGHT=${WEIGHT_ROOT}/ilsvrc-cls_rna-a1_cls1000_ep-0001.params
 
 # train classification network with Contrastive Learning
@@ -23,17 +24,19 @@ CUDA_VISIBLE_DEVICES=${GPU} python3 contrast_train.py \
     --crop_size         448 \
     --tau               0.4 \
     --max_iters         10000 \
-    --iter_size         2 \
-    --batch_size        8 \
+    --iter_size         2   \
+    --batch_size        8   \
+    --val_times 	    20  \
     --p_cutoff          0.95 \
-    --val_times 	    50  \
-    --PL                ws  \
-    --anchor_k          10  \
-    --nn_l              10  \
-    --use_sal               \
+    --use_ema               \
     --use_wandb             \
-
-
+    # --use_cutmix
+    # --attn_cutoff       0.95 \
+    # --attn_mode         feat \
+    # --attn_type         gau  \
+    # --focal_p           4096 \
+    # --attn_temp         0.005  \
+    
 DATA=train # train / train_aug
 TRAINED_WEIGHT=train_log/${SESSION}/checkpoint.pth
 # 2. inference CAM
@@ -43,13 +46,13 @@ CUDA_VISIBLE_DEVICES=${GPU} python3 contrast_infer.py \
     --network               network.${BACKBONE} \
     --weights               ${TRAINED_WEIGHT} \
     --thr                   0.22 \
-    --n_gpus                2 \
-    --n_processes_per_gpu   1 1 \
+    --n_gpus                1 \
+    --n_processes_per_gpu   1 \
     --cam_png               train_log/${SESSION}/result/cam_png \
     --cam_npy               train_log/${SESSION}/result/cam_npy \
     --crf                   train_log/${SESSION}/result/crf_png \
-    --crf_t                 5   \
-    --crf_alpha             4 8 16 24 \
+    --crf_t                 5 \
+    --crf_alpha             8 \
 
 GT_ROOT=${DATASET_ROOT}/SegmentationClassAug/
 # 3. evaluate CAM (train set에 대해)

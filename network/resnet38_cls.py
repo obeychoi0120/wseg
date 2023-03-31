@@ -46,14 +46,6 @@ class Net(network.resnet38d.Net):
 
         return x
 
-    def forward_cam_with_feat(self, x):
-        x = super().forward(x)
-
-        x = F.conv2d(x, self.fc8.weight)
-        x = F.relu(x)
-
-        return x
-        
     def get_parameter_groups(self):
         groups = ([], [], [], [])
 

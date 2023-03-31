@@ -8,22 +8,16 @@ import network.resnet38d
 class Net(network.resnet38d.Net):
     def __init__(self, num_class=21):
         super().__init__()
-
         self.fc8 = nn.Conv2d(4096, num_class, 1, bias=False)
-
         torch.nn.init.xavier_uniform_(self.fc8.weight)
-
         self.not_training = [self.conv1a, self.b2, self.b2_1, self.b2_2]
         self.from_scratch_layers = [self.fc8]
 
     def forward(self, x):
         x = super().forward(x)
-
         cam = self.fc8(x)
-
         _, _, h, w = cam.size()
         pred = F.avg_pool2d(cam, kernel_size=(h, w), padding=0)
-
         pred = pred.view(pred.size(0), -1)
         return pred, cam
 
