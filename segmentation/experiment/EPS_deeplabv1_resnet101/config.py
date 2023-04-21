@@ -10,10 +10,11 @@ import time
 
 config_dict = {
 		'EXP_NAME': 'EPS_deeplabv1_resnet101',
-		'GPUS': 1,
+		'GPUS': 2,
 
 		'DATA_NAME': 'VOCDataset',
 		'DATA_YEAR': 2012,
+		'DATA_LIST': '../../../data/voc12/train_aug_id.txt',
 		'DATA_AUG': True,
 		'DATA_WORKERS': 4,
 		'DATA_MEAN': [0.485, 0.456, 0.406],
@@ -24,7 +25,7 @@ config_dict = {
 		'DATA_RANDOM_S': 10,
 		'DATA_RANDOM_V': 10,
 		'DATA_RANDOMFLIP': 0.5,
-		'DATA_PSEUDO_GT': 'your_pseudo_label_dir',
+		'DATA_PSEUDO_GT': 'YOUR_PSEUDO_LABEL_DIR',
 
 		'MODEL_NAME': 'deeplabv1',
 		'MODEL_BACKBONE': 'resnet101',
@@ -41,12 +42,13 @@ config_dict = {
 		'TRAIN_WEIGHT_DECAY': 0.0005,
 		'TRAIN_BN_MOM': 0.0003,
 		'TRAIN_POWER': 0.9,
-		'TRAIN_BATCHES': 10,
+		'TRAIN_BATCHES': 20,
 		'TRAIN_SHUFFLE': True,
 		'TRAIN_MINEPOCH': 0,
-		'TRAIN_ITERATION': 20000,
+		'TRAIN_ITERATION': 10000,
 		'TRAIN_TBLOG': True,
-
+		
+		'TEST_PERIOD': 'val', # 'test'
 		'TEST_MULTISCALE': [0.5, 0.75, 1.0, 1.25, 1.5, 1.75],
 		'TEST_FLIP': True,
 		'TEST_CRF': True,
@@ -59,6 +61,7 @@ config_dict['TRAIN_CKPT'] = None
 config_dict['LOG_DIR'] = os.path.join(config_dict['ROOT_DIR'],'log',config_dict['EXP_NAME'])
 
 # for test, must be updated
-config_dict['TEST_CKPT'] = os.path.join(config_dict['ROOT_DIR'], 'your_ckpt.pth')
+config_dict['TEST_CKPT'] = os.path.join(config_dict['MODEL_SAVE_DIR'], 'deeplabv1_resnet101_VOCDataset_all.pth') ###
 
 sys.path.insert(0, os.path.join(config_dict['ROOT_DIR'], 'lib'))
+print(config_dict)

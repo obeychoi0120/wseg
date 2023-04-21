@@ -38,7 +38,7 @@ cfg = Configuration(config_dict)
 def train_net():
 	period = 'train'
 	transform = 'weak'
-	dataset = generate_dataset(cfg, period=period, transform=transform)
+	dataset = generate_dataset(cfg, period=period, transform=transform, datalist=cfg.DATA_LIST)
 	def worker_init_fn(worker_id):
 		np.random.seed(1 + worker_id)
 	dataloader = DataLoader(dataset,
@@ -128,7 +128,7 @@ def train_net():
 			if os.path.exists(remove_path):
 				os.remove(remove_path)
 
-	save_path = os.path.join(cfg.MODEL_SAVE_DIR,'%s_%s_%s_itr%d_all.pth'%(cfg.MODEL_NAME,cfg.MODEL_BACKBONE,cfg.DATA_NAME,cfg.TRAIN_ITERATION))
+	save_path = os.path.join(cfg.MODEL_SAVE_DIR,'%s_%s_%s_all.pth'%(cfg.MODEL_NAME,cfg.MODEL_BACKBONE,cfg.DATA_NAME))
 	torch.save(parameter_source.state_dict(),save_path)
 	if cfg.TRAIN_TBLOG:
 		tblogger.close()

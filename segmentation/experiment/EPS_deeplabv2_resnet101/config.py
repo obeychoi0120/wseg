@@ -10,12 +10,12 @@ import time
 
 config_dict = {
 		'EXP_NAME': 'EPS_deeplabv2_resnet101',
-		'GPUS': 4,
+		'GPUS': 2,
 
 		'DATA_NAME': 'VOCDataset',
 		'DATA_YEAR': 2012,
 		'DATA_PERIOD': 'train',
-		'DATA_LIST': '../../../voc12/train_aug_id.txt',
+		'DATA_LIST': '../../../data/voc12/train_aug_id.txt',
 		'DATA_AUG': True,
 		'DATA_WORKERS': 4,
 		'DATA_MEAN': [0.485, 0.456, 0.406],
@@ -50,10 +50,10 @@ config_dict = {
 		'TRAIN_WEIGHT_DECAY': 0.0005,
 		'TRAIN_BN_MOM': 0.0003,
 		'TRAIN_POWER': 0.9,
-		'TRAIN_BATCHES': 12,
+		'TRAIN_BATCHES': 10,
 		'TRAIN_SHUFFLE': True,
 		'TRAIN_MINEPOCH': 0,
-		'TRAIN_ITERATION': 20000,
+		'TRAIN_ITERATION': 10000,
 		'TRAIN_TBLOG': True,
 
 		'TEST_MULTISCALE': [0.5, 0.75, 1.0, 1.25, 1.5, 1.75],
@@ -68,6 +68,7 @@ config_dict['TRAIN_CKPT'] = None
 config_dict['LOG_DIR'] = os.path.join(config_dict['ROOT_DIR'],'log',config_dict['EXP_NAME'])
 
 # for test, must be updated
-config_dict['TEST_CKPT'] = os.path.join(config_dict['ROOT_DIR'], 'your_ckpt.pth')
+config_dict['TEST_CKPT'] = os.path.join(config_dict['MODEL_SAVE_DIR'], 'deeplabv2_resnet101_VOCDataset_all.pth') ###
 
 sys.path.insert(0, os.path.join(config_dict['ROOT_DIR'], 'lib'))
+print(config_dict)

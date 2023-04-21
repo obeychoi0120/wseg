@@ -1,11 +1,13 @@
 import torch
 from torch import nn
-import numpy as np
 
 import torch.nn.functional as F
+
+from util.imutils import Normalize
+
+
 class ResBlock(nn.Module):
-    def __init__(self, in_channels, mid_channels, out_channels, stride=1,
-                 first_dilation=None, dilation=1):
+    def __init__(self, in_channels, mid_channels, out_channels, stride=1, first_dilation=None, dilation=1):
         super(ResBlock, self).__init__()
 
         self.same_shape = (in_channels == out_channels and stride == 1)
@@ -101,21 +103,6 @@ class ResBlock_bot(nn.Module):
     def __call__(self, x, get_x_bn_relu=False):
         return self.forward(x, get_x_bn_relu=get_x_bn_relu)
 
-class Normalize():
-    def __init__(self, mean = (0.485, 0.456, 0.406), std = (0.229, 0.224, 0.225)):
-
-        self.mean = mean
-        self.std = std
-
-    def __call__(self, img):
-        imgarr = np.asarray(img)
-        proc_img = np.empty_like(imgarr, np.float32)
-
-        proc_img[..., 0] = (imgarr[..., 0] / 255. - self.mean[0]) / self.std[0]
-        proc_img[..., 1] = (imgarr[..., 1] / 255. - self.mean[1]) / self.std[1]
-        proc_img[..., 2] = (imgarr[..., 2] / 255. - self.mean[2]) / self.std[2]
-
-        return proc_img
 
 class Net(nn.Module):
     def __init__(self):
@@ -169,8 +156,7 @@ class Net(nn.Module):
         x = self.b3_1(x)
         x = self.b3_2(x)
 
-        #x = self.b4(x)
-        x, conv3 = self.b4(x, get_x_bn_relu=True)
+        x = self.b4(x)
         x = self.b4_1(x)
         x = self.b4_2(x)
         x = self.b4_3(x)
@@ -186,7 +172,7 @@ class Net(nn.Module):
         x = self.b7(x)
         conv6 = F.relu(self.bn7(x))
 
-        return dict({'conv3': conv3, 'conv4': conv4, 'conv5': conv5, 'conv6': conv6})
+        return dict({'conv4': conv4, 'conv5': conv5, 'conv6': conv6})
 
 
     def train(self, mode=True):

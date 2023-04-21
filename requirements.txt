@@ -10,3 +10,7 @@ pytz
 mxnet
 scikit-image
 scikit-learn
+tqdm
+wandb
+chainercv
+setuptools==49.0.0
