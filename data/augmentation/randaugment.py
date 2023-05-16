@@ -181,13 +181,13 @@ def augment_list():
         (Equalize, 0, 1),
         (Identity, 0, 1),
         (Posterize, 4, 8),
-        (Rotate, -30, 30),          # geometric
         (Sharpness, 0.05, 0.95),
+        (Solarize, 0, 256),
         (ShearX, -0.3, 0.3),        # geometric
         (ShearY, -0.3, 0.3),        # geometric
-        (Solarize, 0, 256),
         (TranslateX, -0.3, 0.3),    # geometric
         (TranslateY, -0.3, 0.3),    # geometric
+        (Rotate, -30, 30),          # geometric
     ]
     return l
 
@@ -200,13 +200,13 @@ def tensor_augment_list(): # ignore non-geometric transformations
         tensorIdentity,
         tensorIdentity,
         tensorIdentity,
-        tensorRotate,       # geometric
+        tensorIdentity,
         tensorIdentity,
         tensorShearX,       # geometric
         tensorShearY,       # geometric
-        tensorIdentity,
         tensorTranslateX,   # geometric
         tensorTranslateY,   # geometric
+        tensorRotate,       # geometric
     ]
     return l
 
@@ -217,7 +217,6 @@ class RandAugment:
         self.m = m      # [0, 30] in fixmatch, deprecated.
         self.augment_list = augment_list()
 
-        
     def __call__(self, img, trs=None, only_geometric=False):
         if trs is None:
             #ops = random.choices(self.augment_list, k=self.n)
@@ -244,10 +243,6 @@ class RandAugment:
 
     
 if __name__ == '__main__':
-    # randaug = RandAugment(3,5)
-    # print(randaug)
-    # for item in randaug.augment_list:
-    #     print(item)
     import os
 
     os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'

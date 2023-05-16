@@ -5,10 +5,10 @@ from torchvision.transforms import functional as tvf
 from torchvision.transforms import InterpolationMode
 import numpy as np
 from PIL import Image
-
+import pdb
 
 ###########           Semi-supervsied Learning           ###########
-def get_ssl_loss(args, iteration, pred_s=None, pred_t=None, cam_s=None, cam_t=None, feat_s=None, feat_t=None, mask=None):
+def get_ssl_loss(args, iteration, pred_s=None, pred_t=None, cam1=None, cam2=None, feat_s=None, feat_t=None, mask=None):
     losses = {'loss_ssl': 0}
 
     #######                1. Logit MSE(L2) loss                 #######
@@ -43,19 +43,19 @@ def get_ssl_loss(args, iteration, pred_s=None, pred_t=None, cam_s=None, cam_t=No
         # else:
         #   cutoff = args.p_cutoff
 
-        losses['loss_org'], losses['loss_pl'] = consistency_loss(cam_s, cam_t, 'ce', args.T, args.p_cutoff, args.soft_label, mask)
+        losses['loss_org'], losses['loss_pl'] = consistency_loss(cam1, cam2, 'ce', args.T, args.p_cutoff, args.soft_label, mask)
         losses['loss_ssl'] += losses['loss_pl'] * args.ssl_lambda
 
     ######           4. T(f(x)) <=> f(T(x)) InfoNCE loss          ######
     if 4 in args.ssl_type:
-        losses['loss_con'] = consistency_cam_loss(torch.softmax(cam_s, dim=1), torch.softmax(cam_t, dim=1), mask)
+        losses['loss_con'] = consistency_cam_loss(torch.softmax(cam1, dim=1), torch.softmax(cam2, dim=1), mask)
         
         warmup = float(np.clip(iteration / (args.mt_warmup * args.max_iters + 1e-9), 0., 1.))
         losses['loss_ssl'] += losses['loss_con'] * args.ssl_lambda * warmup
 
     ######      5. Class Discriminative(Divide) Contrastive loss       ######
     if 5 in args.ssl_type:
-        losses['loss_cdc'], losses['mask_cdc_pos'], losses['mask_cdc_neg'] = class_discriminative_contrastive_loss(cam_s, feat_s, args.p_cutoff, inter=args.cdc_inter, temperature=args.cdc_T, normalize=args.cdc_norm)
+        losses['loss_cdc'], losses['mask_cdc_pos'], losses['mask_cdc_neg'] = class_discriminative_contrastive_loss(cam1, feat_s, args.p_cutoff, inter=args.cdc_inter, temperature=args.cdc_T, normalize=args.cdc_norm)
         losses['loss_ssl'] += losses['loss_cdc'] * args.cdc_lambda
 
     return losses
@@ -68,13 +68,10 @@ def consistency_loss(logits_s, logits_t, name='L2', T=1.0, p_cutoff=0.0, use_sof
         max_probs, max_idx = torch.max(pseudo_label, dim=1)
         # mask = max_probs.ge(p_cutoff).float()
         # mask = torch.where(max_idx < 20, mask, torch.zeros_like(mask)) # ignore background confidence
-        
         if not use_soft_label:  # 0217 current
             org_loss = ce_loss(logits_s, max_idx, use_soft_label, reduction='none')
+            # masked_loss = ((org_loss * mask).sum())/(mask.sum()+1e-4)
             masked_loss = (org_loss * mask).mean()
-            # masked_loss = torch.div((org_loss*mask).sum(), mask.sum()) # NOPE
-            # l2_loss = F.mse_loss(logits_s, logits_t, reduction='none').mean()
-        
         else:   # soft label
             pseudo_label = torch.softmax(logits_t / T, dim=1)
             org_loss = ce_loss(logits_s, pseudo_label, use_soft_label)
@@ -121,7 +118,7 @@ class NCESoftmaxLoss(nn.Module): ### useless
 
 def transform_cam(cam, i, j, h, w, hor_flip, args): ### useless
     gpu_batch_len = cam.size(0)
-    cam_size = cam.size(-1)
+    cam1ize = cam.size(-1)
     aug_cam = torch.zeros_like(cam).cuda()
     scale = cam.size(-1) / args.crop_size
     for b in range(gpu_batch_len):
@@ -131,7 +128,7 @@ def transform_cam(cam, i, j, h, w, hor_flip, args): ### useless
                                  int(j[b]*scale): int(j[b]*scale) + int(w[b]*scale)]
         # We use torch functional to resize without breaking the graph
         orig_gcam = orig_gcam.unsqueeze(0)
-        orig_gcam = F.interpolate(orig_gcam, size=cam_size, mode='bilinear')
+        orig_gcam = F.interpolate(orig_gcam, size=cam1ize, mode='bilinear')
         orig_gcam = orig_gcam.squeeze()
         if hor_flip[b]:
             orig_gcam = orig_gcam.flip(-1)
@@ -165,7 +162,6 @@ def consistency_cam_loss(cam_from_aug, augmented_cam, mask=None):
     neg = torch.mm(cam_from_aug, cam_from_aug.transpose(1, 0))
     neg = neg[(1-torch.eye(bsize)).bool()].view(-1, bsize-1)
     out = torch.cat((pos.view(bsize, 1), neg), dim=1)
-    
     return nce_softmax_loss(out)
 
 def consistency_feat_loss(cam_from_aug, augmented_cam, mask=None):
@@ -180,15 +176,13 @@ def consistency_feat_loss(cam_from_aug, augmented_cam, mask=None):
     neg = torch.mm(cam_from_aug, cam_from_aug.transpose(1, 0))
     neg = neg[(1-torch.eye(bsize)).bool()].view(-1, bsize-1)
     out = torch.cat((pos.view(bsize, 1), neg), dim=1)
-    
     return nce_softmax_loss(out)
 
 def apply_strong_tr(img, ops, strong_transforms=None, fill_background=False):
     if len(ops):
         b, c, h, w = img.size()
-
         ops = torch.stack([torch.stack(op,dim=0) for op in ops], dim=0) # (N_transforms, 2(i,v), Batch_size)
-        img = img.detach().clone()
+        img = img.clone()
         for idxs, vals in ops:
             for i, (idx, val) in enumerate(zip(idxs, vals)):
                 idx, val = int(idx.item()), val.item()
@@ -198,7 +192,7 @@ def apply_strong_tr(img, ops, strong_transforms=None, fill_background=False):
                     kwargs['fillcolor'] = torch.zeros_like(img[i,:,0,0])
                     kwargs['fillcolor'][-1] = img[i].max()
                 # reample: NEAREST or BILINEAR, replace resample into interpolation(:InterpolationMode) after 0.10
-                img[i,:] = tvf.affine(img[i], resample=Image.BILINEAR, **kwargs) 
+                img[i,:] = tvf.affine(img[i].clone(), interpolation=Image.BILINEAR, **kwargs) 
     return img
 
 
@@ -222,39 +216,51 @@ def rand_bbox(size, l):
     return bbx1, bby1, bbx2, bby2
     
 
-def cutmix(img_ulb, target, mask=None):
-    mix_img_ulb = img_ulb.clone()
-    mix_target = target.clone()
-    if mask is not None:
-        mix_mask = mask.clone()
+def cutmix(img, cam1, cam2, feat1=None, feat2=None):
+    mix_img = img.clone()
+    mix_cam1 = cam1.clone()
+    mix_cam2 = cam2.clone()
 
-    x_r = img_ulb.size(-1) / target.size(-1)
-    y_r = img_ulb.size(-2) / target.size(-2)
+    if feat1 is not None:
+        assert feat2 is not None
+        mix_feat1 = feat1.clone()
+        mix_feat2 = feat2.clone()
+
+    x_r1 = img.size(-1) / cam1.size(-1)
+    y_r1 = img.size(-2) / cam1.size(-2)
+    x_r2 = img.size(-1) / cam2.size(-1)
+    y_r2 = img.size(-2) / cam2.size(-2)
+
     # cam size == feat size
-    
-    u_rand_index = torch.randperm(img_ulb.size()[0])[:img_ulb.size()[0]].cuda()
-    u_bbx1, u_bby1, u_bbx2, u_bby2 = rand_bbox(img_ulb.size(), l=np.random.beta(4, 4))
+    u_rand_index = torch.randperm(img.size()[0])[:img.size()[0]].cuda()
+    u_bbx1, u_bby1, u_bbx2, u_bby2 = rand_bbox(img.size(), l=np.random.beta(4, 4))
 
-    u_bbx1_t, u_bby1_t, u_bbx2_t, u_bby2_t = (u_bbx1//x_r).astype(np.int32), (u_bby1//y_r).astype(np.int32), \
-                                             (u_bbx2//x_r).astype(np.int32), (u_bby2//y_r).astype(np.int32)
+    u_bbx1_t1, u_bby1_t1, u_bbx2_t1, u_bby2_t1 = (u_bbx1//x_r1).astype(np.int32), (u_bby1//y_r1).astype(np.int32), \
+                                             (u_bbx2//x_r1).astype(np.int32), (u_bby2//y_r1).astype(np.int32)
+    u_bbx1_t2, u_bby1_t2, u_bbx2_t2, u_bby2_t2 = (u_bbx1//x_r2).astype(np.int32), (u_bby1//y_r2).astype(np.int32), \
+                                             (u_bbx2//x_r2).astype(np.int32), (u_bby2//y_r2).astype(np.int32)
 
-    for i in range(0, mix_img_ulb.size(0)):
-        mix_img_ulb[i, :, u_bbx1[i]:u_bbx2[i], u_bby1[i]:u_bby2[i]] = \
-            img_ulb[u_rand_index[i], :, u_bbx1[i]:u_bbx2[i], u_bby1[i]:u_bby2[i]]
+    for i in range(0, mix_img.size(0)):
+        mix_img[i, :, u_bbx1[i]:u_bbx2[i], u_bby1[i]:u_bby2[i]] = \
+            img[u_rand_index[i], :, u_bbx1[i]:u_bbx2[i], u_bby1[i]:u_bby2[i]]
 
-        mix_target[i, :, u_bbx1_t[i]:u_bbx2_t[i], u_bby1_t[i]:u_bby2_t[i]] = \
-            target[u_rand_index[i], :, u_bbx1_t[i]:u_bbx2_t[i], u_bby1_t[i]:u_bby2_t[i]]
+        mix_cam1[i, :, u_bbx1_t1[i]:u_bbx2_t1[i], u_bby1_t1[i]:u_bby2_t1[i]] = \
+            cam1[u_rand_index[i], :, u_bbx1_t1[i]:u_bbx2_t1[i], u_bby1_t1[i]:u_bby2_t1[i]]        
+
+        mix_cam2[i, :, u_bbx1_t2[i]:u_bbx2_t2[i], u_bby1_t2[i]:u_bby2_t2[i]] = \
+            cam2[u_rand_index[i], :, u_bbx1_t2[i]:u_bbx2_t2[i], u_bby1_t2[i]:u_bby2_t2[i]]
         
-        if mask is not None:
-            mix_mask[i, :, u_bbx1[i]:u_bbx2[i], u_bby1[i]:u_bby2[i]] = \
-                mask[u_rand_index[i], :, u_bbx1[i]:u_bbx2[i], u_bby1[i]:u_bby2[i]]
-
-    del img_ulb, target
-    # import pdb; pdb.set_trace()
-    if mask is not None:
-        return mix_img_ulb, mix_target, mix_mask
+        if feat1 is not None:
+            mix_feat1[i, :, u_bbx1_t2[i]:u_bbx2_t2[i], u_bby1_t2[i]:u_bby2_t2[i]] = \
+                feat1[u_rand_index[i], :, u_bbx1_t2[i]:u_bbx2_t2[i], u_bby1_t2[i]:u_bby2_t2[i]]
+            
+            mix_feat2[i, :, u_bbx1_t2[i]:u_bbx2_t2[i], u_bby1_t2[i]:u_bby2_t2[i]] = \
+                feat2[u_rand_index[i], :, u_bbx1_t2[i]:u_bbx2_t2[i], u_bby1_t2[i]:u_bby2_t2[i]]
+            
+    if feat1 is not None:
+        return mix_img, mix_cam1, mix_cam2, mix_feat1, mix_feat2
     else:    
-        return mix_img_ulb, mix_target
+        return mix_img, mix_cam1, mix_cam2
 
 
 def class_discriminative_contrastive_loss(cam, feat, p_cutoff=0., inter=False, temperature=0.07, eps=1e-9, normalize=True):

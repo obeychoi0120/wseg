@@ -60,18 +60,12 @@ def get_arguments():
     parser.add_argument('--ulb_saliency_root', default=None, type=str)
     parser.add_argument('--train_ulb_list', default='', type=str)
     parser.add_argument('--mu', default=1.0, type=float) # ratio of ulb / lb data
-
-    parser.add_argument('--ulb_aug_type', default='strong', type=str) # None / weak / strong : 'aug_type'
-    parser.add_argument('--n_strong_aug', default=5, type=int) # number of RandAug
-    parser.add_argument('--use_cutmix', action='store_true') # Use CutMix
-
     parser.add_argument('--use_ema',action='store_true') 
     parser.add_argument('--ema_m', default=0.999, type=float) 
     parser.add_argument('--mt_warmup', type=float, default=0.4) # mean teacher warmup
     parser.add_argument('--mt_lambda', default=50.0, type=float) # ratio of ssl loss
     parser.add_argument('--mt_p', default=0., type=float) # ratio of ssl loss
     parser.add_argument('--ssl_lambda', default=1.0, type=float) # ratio of ssl loss
-    # parser.add_argument('--l2_lambda', default=0.0, type=float) # ratio of l2 loss
     parser.add_argument('--p_cutoff', default=0.95, type=float)
     parser.add_argument('--th_scheduler', action='store_true') # Threshold Scheduler
     parser.add_argument('--T', type=float, default=0.5)
@@ -81,12 +75,12 @@ def get_arguments():
     parser.add_argument('--cdc_norm', action='store_true') # Normalize feature to calculate cdc loss
     parser.add_argument('--cdc_inter', action='store_true') # Calculate Inter-image pixel    
     
-    ####    Label Propagation   #### 
-    parser.add_argument('--attn_type', type=str, choices=['none', 'gau', 'gau2'], default='none')
-    parser.add_argument('--attn_cutoff', type=float)
-    parser.add_argument('--attn_tau', type = float, default=0.001)
-    parser.add_argument('--focal_p', default=256, type=int)
-    parser.add_argument('--require_feats_high', action='store_true')
+    ### Augmentations ###
+    parser.add_argument('--ulb_aug_type', default='strong', type=str) # None / weak / strong : 'aug_type'
+    parser.add_argument('--n_strong_aug', default=5, type=int) # number of RandAug
+    parser.add_argument('--use_cutmix', action='store_true') # Use CutMix
+    parser.add_argument('--strong_crop_size', default=336, type=int)
+
     
     args = parser.parse_args()
 
@@ -169,13 +163,18 @@ if __name__ == '__main__':
     model = torch.nn.DataParallel(model).cuda()
     model.train()
     
+
     # Arguments
     print(vars(args))
     if args.use_wandb:
         wandb.config.update(args)
     # Train
     if args.mode in ['ssl', 'v2']:
-        train_ssl(train_loader, train_ulb_loader, val_loader, model, optimizer, max_step, args)
+        model_l = get_model(args)
+        optimizer_l = get_optimizer(args, model_l, max_step)
+        model_l = torch.nn.DataParallel(model_l).cuda()
+        model_l.train()
+        train_ssl(train_loader, train_ulb_loader, val_loader, model, model_l, optimizer, optimizer_l, max_step, args)
     else:
         train(train_loader, val_loader, model, optimizer, max_step, args)
     print('Train Done.')

@@ -20,7 +20,7 @@ from data.augmentation.randaugment import tensor_augment_list
 from module.loss import adaptive_min_pooling_loss, get_er_loss, get_eps_loss, get_contrast_loss
 from module.validate import *
 from module.ssl import *
-from module.helper import get_avg_meter, Attn, Self_Attn, ssl_dataiter
+from module.helper import align_with_strongcrop, get_avg_meter, get_masks_by_confidence
 
 # Control Randomness
 random_seed = 7
@@ -94,7 +94,7 @@ def train(train_dataloader, val_dataloader, model, optimizer, max_step, args):
                 B = img.shape[0]
 
                 if args.network_type == 'cls':
-                    pred1 = model(img, forward_cam=False)
+                    pred1, _ = model(img)
                     loss_cls = F.multilabel_soft_margin_loss(pred1[:, :-1], label)
                     loss_sup = loss_cls
                     avg_meter.add({
@@ -213,7 +213,8 @@ def train(train_dataloader, val_dataloader, model, optimizer, max_step, args):
                 timer.reset_stage()
         torch.save(model.module.state_dict(), os.path.join(args.log_folder, 'checkpoint.pth'))
 
-def train_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, model, optimizer, max_step, args):
+def train_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, model, model_l, optimizer, optimizer_l, max_step, args):
+    torch.autograd.set_detect_anomaly(True)
     avg_meter = get_avg_meter(args=args)
     timer = pyutils.Timer("Session started: ")
     strong_transforms = tensor_augment_list()
@@ -230,11 +231,6 @@ def train_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, model, opt
     
     lb_loader_iter = iter(train_dataloader)
     ulb_loader_iter = iter(train_ulb_dataloader) if train_ulb_dataloader else None
-
-    if args.attn_type != 'none':
-        print('Using PL Attn')
-        with torch.no_grad(): 
-            feat_attn = Attn().cuda()
 
     # EMA
     if args.use_ema:
@@ -273,64 +269,78 @@ def train_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, model, opt
                 ######## Dataloads ########
                 if args.network_type in ['eps', 'contrast']:
                     try:
-                        img_id, img_w, saliency, img_s, _, ops, label = next(lb_loader_iter)
+                        img_id, img_w, saliency, img_s, _, tr_ops, randaug_ops, label = next(lb_loader_iter)
                     except:
                         lb_loader_iter = iter(train_dataloader)
-                        img_id, img_w, saliency, img_s, _, ops, label = next(lb_loader_iter)
+                        img_id, img_w, saliency, img_s, _, tr_ops, randaug_ops, label = next(lb_loader_iter)
                     B = len(img_id)
                     if train_ulb_dataloader:
                         try:
-                            ulb_img_id, ulb_img_w, ulb_img_s, ulb_ops = next(ulb_loader_iter)
+                            ulb_img_id, ulb_img_w, ulb_img_s, ulb_tr_ops, ulb_randaug_ops = next(ulb_loader_iter)
                         except:
                             ulb_loader_iter = iter(train_ulb_dataloader)       
-                            ulb_img_id, ulb_img_w, ulb_img_s, ulb_ops = next(ulb_loader_iter)
-                        
+                            ulb_img_id, ulb_img_w, ulb_img_s, ulb_tr_ops, ulb_randaug_ops = next(ulb_loader_iter)
+                            
                         # Concat Image lb & ulb
                         img_id = img_id + ulb_img_id
                         img_w = torch.cat([img_w, ulb_img_w], dim=0)
                         img_s = torch.cat([img_s, ulb_img_s], dim=0)
+                        
                         # Concat Strong Aug. options
-                        for i, ((idx, v), (ulb_idx, ulb_v)) in enumerate(zip(ops, ulb_ops)):
-                            ops[i][0] = torch.cat([idx, ulb_idx], dim=0)
-                            ops[i][1] = torch.cat([v, ulb_v], dim=0)
+                        for i, ((idx, v), (ulb_idx, ulb_v)) in enumerate(zip(randaug_ops, ulb_randaug_ops)):
+                            randaug_ops[i][0] = torch.cat([idx, ulb_idx], dim=0)
+                            randaug_ops[i][1] = torch.cat([v, ulb_v], dim=0)
+
+                        for i, ((idx, v), (ulb_idx, ulb_v)) in enumerate(zip(tr_ops, ulb_tr_ops)):
+                            tr_ops[i][0] = torch.cat([idx, ulb_idx], dim=0)
+                            tr_ops[i][1] = torch.cat([v, ulb_v], dim=0)
 
                     img_w = img_w.cuda(non_blocking=True)
                     img_s = img_s.cuda(non_blocking=True)
                     label = label.cuda(non_blocking=True)
+                    img_tr = align_with_strongcrop(args, img_w, img_s, tr_ops, is_cam=False).cuda(non_blocking=True)
                     saliency = saliency.cuda(non_blocking=True)
-                
+
                 elif args.network_type in ['cls', 'seam']:
                     try:
-                        img_id, img_w, img_s, ops, label = next(lb_loader_iter)
+                        img_id, img_w, img_s, tr_ops, randaug_ops, label = next(lb_loader_iter)
                     except:
                         lb_loader_iter = iter(train_dataloader)
-                        img_id, img_w, img_s, ops, label = next(lb_loader_iter)
+                        img_id, img_w, img_s, tr_ops, randaug_ops, label = next(lb_loader_iter)
                     
                     B = len(img_id)
 
                     if ulb_loader_iter:
                         try:
-                            ulb_img_id, ulb_img_w, ulb_img_s, ulb_ops = next(ulb_loader_iter)
+                            ulb_img_id, ulb_img_w, ulb_img_s, ulb_tr_ops, ulb_randaug_ops = next(ulb_loader_iter)
                         except:
                             ulb_loader_iter = iter(train_ulb_dataloader)  
-                            ulb_img_id, ulb_img_w, ulb_img_s, ulb_ops = next(ulb_loader_iter)
+                            ulb_img_id, ulb_img_w, ulb_img_s, ulb_tr_ops, ulb_randaug_ops = next(ulb_loader_iter)
                         
                         # Concat Image lb & ulb
                         img_id = img_id + ulb_img_id
                         img_w = torch.cat([img_w, ulb_img_w], dim=0)
                         img_s = torch.cat([img_s, ulb_img_s], dim=0)
+                        
                         # Concat Strong Aug. options
-                        for i, ((idx, v), (ulb_idx, ulb_v)) in enumerate(zip(ops, ulb_ops)):
-                            ops[i][0] = torch.cat([idx, ulb_idx], dim=0)
-                            ops[i][1] = torch.cat([v, ulb_v], dim=0)
+                        for i, ((idx, v), (ulb_idx, ulb_v)) in enumerate(zip(randaug_ops, ulb_randaug_ops)):
+                            randaug_ops[i][0] = torch.cat([idx, ulb_idx], dim=0)
+                            randaug_ops[i][1] = torch.cat([v, ulb_v], dim=0)
 
+                        for i, ((idx, v), (ulb_idx, ulb_v)) in enumerate(zip(tr_ops, ulb_tr_ops)):
+                            tr_ops[i][0] = torch.cat([idx, ulb_idx], dim=0)
+                            tr_ops[i][1] = torch.cat([v, ulb_v], dim=0)
+
+                    # aligning img_tr with img_s
                     img_w = img_w.cuda(non_blocking=True)
                     img_s = img_s.cuda(non_blocking=True)
                     label = label.cuda(non_blocking=True)
+                    img_tr = align_with_strongcrop(args, img_w, img_s, tr_ops, is_cam=False).cuda(non_blocking=True)
+                    assert img_tr.shape == img_s.shape
 
                 ######## Supervised Losses ########
                 if args.network_type == 'cls':
-                    pred1 = model(img_w, forward_cam=False)
+                    pred1, _ = model(img_w)
                     loss_cls = F.multilabel_soft_margin_loss(pred1[:, :-1], label)
                     loss_sup = loss_cls
                     avg_meter.add({
@@ -398,109 +408,92 @@ def train_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, model, opt
                     loss_sup = loss_cls + loss_er + loss_ecr + loss_sal + loss_nce
                     avg_meter.add({
                         'loss_cls': loss_cls.item(),
-                        'loss_er': loss_er.item(),
+                        'loss_er' : loss_er.item(),
                         'loss_ecr': loss_ecr.item(),
                         'loss_nce': loss_nce.item(),
                         'loss_sal': loss_sal.item(),
                         'loss_sup': loss_sup.item()
                         })
                 '''
-                #######     Pseudo Label Propagation    #######
-                pred_w:       (B, 21)
-                cam_s:        (B, 21, 56, 56)
-                max_probs:    (B, 56, 56) - 가장 높은 class confidence
-                feat_tr_t:     (B, 128, 56, 56)
+                #######     Consistency Training        #######
+                model_l:    한번 더 crop된 input 처리
+                pred_w:     (B, 21)
+                cam_s:      (B, 21, 56, 56)
+                max_probs:  (B, 56, 56) - 가장 높은 class confidence
+                feat_tr_t:  (B, 128, 56, 56)
                 '''
                 ######## Teacher ########
                 if ema is not None:
                     ema.apply_shadow()
-                with torch.no_grad():
-                    if args.network_type in ['seam', 'contrast']:
-                        pred_w, cam_w, pred_rv_w, cam_rv_w, feat_w = model(img_w)
-                        cam_w[:B, :-1] *= label[:,:,None,None]
-                        # Geometric Matching 
-                        if args.ulb_aug_type == 'strong':
-                            cam_tr = apply_strong_tr(cam_w, ops, strong_transforms=strong_transforms)
-                            feat_tr = apply_strong_tr(feat_w, ops, strong_transforms=strong_transforms)
-                        else: # weak aug
-                            cam_tr = cam_w
-                            feat_tr = feat_w
-                        if args.use_cutmix:
-                            img_s, cam_tr, feat_tr = cutmix(img_s, cam_tr, feat_tr)
+                if args.network_type in ['seam', 'contrast']:
+                    pred_w, cam_w, pred_rv_w, cam_rv_w, feat_w = model(img_w)
+                    cam_w[:B, :-1] *= label[:,:,None,None]
                     
-                    elif args.network_type == 'eps':
-                        pred_w, cam_w = model(img_w)
-                        cam_w[:B, :-1] *= label[:,:,None,None]
-                        # Geometric Matching 
-                        if args.ulb_aug_type == 'strong':
-                            cam_tr = apply_strong_tr(cam_w, ops, strong_transforms=strong_transforms) if args.ulb_aug_type == 'strong' else cam1
-                        if args.use_cutmix:
-                            img_s, cam_tr = cutmix(img_s, cam_tr)
+                    # making PL does not require grad
+                    with torch.no_grad():
+                        pred_tr, cam_tr, pred_rv_tr, cam_rv_tr, feat_tr = model_l(img_tr)
+                        cam_tr[:B, :-1] *= label[:,:,None,None]
+                    
+                    # Geometric Matching 
+                    cam_w = align_with_strongcrop(args, cam_w, cam_tr, tr_ops, is_cam=True).cuda()
+                    if args.ulb_aug_type == 'strong':
+                        cam_tr = apply_strong_tr(cam_tr, randaug_ops, strong_transforms=strong_transforms)
+                        feat_tr = apply_strong_tr(feat_tr, randaug_ops, strong_transforms=strong_transforms)
+                        cam_w = apply_strong_tr(cam_w, randaug_ops, strong_transforms=strong_transforms)
+                        feat_w = apply_strong_tr(feat_w, randaug_ops, strong_transforms=strong_transforms)
+                    if args.use_cutmix:
+                        img_s, cam_w, cam_tr, feat_w, feat_tr = cutmix(img_s, cam_w, cam_tr, feat_w, feat_tr)
 
-                    elif args.network_type == 'cls':
-                        pred_w, cam_w = model(img_w, forward_cam=True)
-                        cam_w[:, :-1] *= label[:,:,None,None]
-                        # Geometric Matching 
-                        if args.ulb_aug_type == 'strong':
-                            cam_tr = apply_strong_tr(cam_w, ops, strong_transforms=strong_transforms) if args.ulb_aug_type == 'strong' else cam1
-                        if args.use_cutmix:
-                            img_s, cam_tr = cutmix(img_s, cam_tr)
-                
+                elif args.network_type in ['cls', 'eps']:
+                    pred_w, cam_w = model(img_w)
+                    cam_w[:B, :-1] *= label[:,:,None,None]
+                    
+                    with torch.no_grad():
+                        pred_tr, cam_tr = model_l(img_tr)
+                        cam_tr[:B, :-1] *= label[:,:,None,None]
+                    
+                    cam_w = align_with_strongcrop(args, cam_w, cam_tr, tr_ops, is_cam=True).cuda()
+                    # Geometric Matching 
+                    if args.ulb_aug_type == 'strong':
+                        cam_w = apply_strong_tr(cam_w, randaug_ops, strong_transforms=strong_transforms)
+                        cam_tr = apply_strong_tr(cam_tr, randaug_ops, strong_transforms=strong_transforms)
+                    if args.use_cutmix:
+                        img_s, cam_w, cam_tr = cutmix(img_s, cam_w, cam_tr)
+
                 if ema is not None:
                     ema.restore()
-
-                cam_mask = cam_tr.softmax(dim=1).max(dim=1).values.ge(args.p_cutoff)
-                unconf_mask = cam_tr.softmax(dim=1).max(dim=1).values.ge(args.p_cutoff)
-
-                if args.attn_type != 'none':
-                    '''
-                    0408 TODO
-                    mIoU-attention으로 증가한 area 비율 로깅
-
-                    '''
-                    if args.attn_type == 'gau2':
-                        feat_q = feat_tr * unconf_mask.unsqueeze(1)
-                        feat_k = feat_tr 
-                        cam_v = cam_tr 
-                    else:
-                        feat_q = feat_tr 
-                        feat_k = feat_tr
-                        cam_v = cam_tr
-                    attn, _ = feat_attn(feat_q, feat_k, cam_v, args)
-                    attn_mask = attn.softmax(dim=1).max(dim=1).values.ge(args.attn_cutoff)
-                    union_mask = torch.logical_or(cam_mask, attn_mask) # Union of 2 masks
-                    added_region = torch.logical_xor(union_mask, cam_mask).float()
-                    union_mask = union_mask.float()
-                    avg_meter.add({
-                        'mask_ratio' : union_mask.mean().item(),       # attn mask ratio
-                        'mask_added_ratio': added_region.mean().item(),
-                        })
-                    # pdb.set_trace()
-                else:
-                    union_mask = cam_mask.float()
-                    avg_meter.add({'mask_ratio': union_mask.mean().item()})
                 
                 ######## Student ########
-                if args.network_type == 'cls':
-                    pred_s, cam_s = model(img_s, forward_cam=True)
-                elif args.network_type == 'eps':
-                    pred_s, cam_s = model(img_s)
+                if args.network_type in ['cls', 'eps']:
+                    pred_s, cam_s = model_l(img_s)
                 elif args.network_type in ['seam', 'contrast']:
-                    pred_s, cam_s, pred_rv_s, cam_rv_s, feat_s = model(img_s)
-
-                # divide by confidence range
-                ssl_pack = get_ssl_loss(args, iteration, cam_s=cam_s, cam_t=cam_tr, mask=union_mask)
-                loss_ssl = ssl_pack['loss_ssl']
-                masks = get_masks_by_confidence(cam=cam_tr)
-                loss_ssl_1 = (ssl_pack['loss_org'] * masks[0]).sum() / (masks[0].sum() + 1e-6)
-                loss_ssl_2 = (ssl_pack['loss_org'] * masks[1]).sum() / (masks[1].sum() + 1e-6)
-                loss_ssl_3 = (ssl_pack['loss_org'] * masks[2]).sum() / (masks[2].sum() + 1e-6)
-                loss_ssl_4 = (ssl_pack['loss_org'] * masks[3]).sum() / (masks[3].sum() + 1e-6)
-                loss_ssl_5 = (ssl_pack['loss_org'] * masks[4]).sum() / (masks[4].sum() + 1e-6)
-                loss_ssl_6 = (ssl_pack['loss_org'] * masks[5]).sum() / (masks[5].sum() + 1e-6)
-                ssl_pack['loss_org'] = ssl_pack['loss_org'].mean()
+                    pred_s, cam_s, pred_rv_s, cam_rv_s, feat_s = model_l(img_s)
                 
-                loss = loss_sup + loss_ssl
+                ######  Consistency Losses  ######
+                conf_mask = cam_tr.softmax(dim=1).max(dim=1).values.ge(args.p_cutoff)
+                con_pack1 = get_ssl_loss(args, iteration, cam1=cam_s, cam2=cam_tr, mask=conf_mask)
+                con_pack2 = get_ssl_loss(args, iteration, cam1=cam_w, cam2=cam_tr, mask=conf_mask)
+                
+                loss_semcon = con_pack1['loss_ssl']
+                loss_viewcon = con_pack2['loss_ssl']
+                
+                masks = get_masks_by_confidence(cam=cam_tr)
+                
+                semcon_loss_1 = (con_pack1['loss_org'] * masks[0]).sum() / (masks[0].sum() + 1e-6)
+                semcon_loss_2 = (con_pack1['loss_org'] * masks[1]).sum() / (masks[1].sum() + 1e-6)
+                semcon_loss_3 = (con_pack1['loss_org'] * masks[2]).sum() / (masks[2].sum() + 1e-6)
+                semcon_loss_4 = (con_pack1['loss_org'] * masks[3]).sum() / (masks[3].sum() + 1e-6)
+                semcon_loss_5 = (con_pack1['loss_org'] * masks[4]).sum() / (masks[4].sum() + 1e-6)
+                semcon_loss_6 = (con_pack1['loss_org'] * masks[5]).sum() / (masks[5].sum() + 1e-6)
+
+                viewcon_loss_1 = (con_pack2['loss_org'] * masks[0]).sum() / (masks[0].sum() + 1e-6)
+                viewcon_loss_2 = (con_pack2['loss_org'] * masks[1]).sum() / (masks[1].sum() + 1e-6)
+                viewcon_loss_3 = (con_pack2['loss_org'] * masks[2]).sum() / (masks[2].sum() + 1e-6)
+                viewcon_loss_4 = (con_pack2['loss_org'] * masks[3]).sum() / (masks[3].sum() + 1e-6)
+                viewcon_loss_5 = (con_pack2['loss_org'] * masks[4]).sum() / (masks[4].sum() + 1e-6)
+                viewcon_loss_6 = (con_pack2['loss_org'] * masks[5]).sum() / (masks[5].sum() + 1e-6)
+                
+                loss = loss_sup + loss_semcon + loss_viewcon
                 
                 # Backward
                 optimizer.zero_grad()
@@ -511,19 +504,27 @@ def train_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, model, opt
 
                 avg_meter.add({
                     'loss': loss.item(),
-                    'loss_ssl': loss_ssl.item(),
-                    'loss_ssl_1': loss_ssl_1.item(),
-                    'loss_ssl_2': loss_ssl_2.item(),
-                    'loss_ssl_3': loss_ssl_3.item(),
-                    'loss_ssl_4': loss_ssl_4.item(),
-                    'loss_ssl_5': loss_ssl_5.item(),
-                    'loss_ssl_6': loss_ssl_6.item(),
+                    'loss_semcon' : loss_semcon.item(),
+                    'loss_viewcon' : loss_viewcon.item(),
+                    'loss_semcon_1': semcon_loss_1.item(),
+                    'loss_semcon_2': semcon_loss_2.item(),
+                    'loss_semcon_3': semcon_loss_3.item(),
+                    'loss_semcon_4': semcon_loss_4.item(),
+                    'loss_semcon_5': semcon_loss_5.item(),
+                    'loss_semcon_6': semcon_loss_6.item(),
+                    'loss_viewcon_1': viewcon_loss_1.item(),
+                    'loss_viewcon_2': viewcon_loss_2.item(),
+                    'loss_viewcon_3': viewcon_loss_3.item(),
+                    'loss_viewcon_4': viewcon_loss_4.item(),
+                    'loss_viewcon_5': viewcon_loss_5.item(),
+                    'loss_viewcon_6': viewcon_loss_6.item(),
                     'mask_1' : masks[0].mean().item(),
                     'mask_2' : masks[1].mean().item(),
                     'mask_3' : masks[2].mean().item(),
                     'mask_4' : masks[3].mean().item(),
                     'mask_5' : masks[4].mean().item(),
                     'mask_6' : masks[5].mean().item(),
+                    'mask_ratio': conf_mask.float().mean().item()
                 })          
 
                 if (optimizer.global_step-1) % (args.log_freq * args.iter_size) == 0:
@@ -546,24 +547,17 @@ def train_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, model, opt
                     
                     if args.mode == 'ssl':
                         print(
-                            'Loss_SUP: %.4f' % (avg_meter.get('loss_sup')),
-                            'Loss_SSL: %.4f' % (avg_meter.get('loss_ssl')),
-                            'Loss_SSL1:%.4f' % (avg_meter.get('loss_ssl_1')),
-                            'Loss_SSL2:%.4f' % (avg_meter.get('loss_ssl_2')),
-                            'Loss_SSL3:%.4f' % (avg_meter.get('loss_ssl_3')),
-                            'Loss_SSL4:%.4f' % (avg_meter.get('loss_ssl_4')),
-                            'Loss_SSL5:%.4f' % (avg_meter.get('loss_ssl_5')),
-                            'Loss_SSL6:%.4f' % (avg_meter.get('loss_ssl_6')),
+                            'Loss_Sup: %.4f' % (avg_meter.get('loss_sup')),
+                            'Loss_SemCon: %.4f' % (avg_meter.get('loss_semcon')),
+                            'Loss_ViewCon: %.4f' % (avg_meter.get('loss_viewcon')),
+                            'mask_ratio:%.4f' % (avg_meter.get('mask_ratio')),
                             'conf_1:%.4f' % (avg_meter.get('mask_1')),
                             'conf_2:%.4f' % (avg_meter.get('mask_2')),
                             'conf_3:%.4f' % (avg_meter.get('mask_3')),
                             'conf_4:%.4f' % (avg_meter.get('mask_4')),
                             'conf_5:%.4f' % (avg_meter.get('mask_5')),
                             'conf_6:%.4f' % (avg_meter.get('mask_6')),
-                            'mask_ratio:%.4f' % (avg_meter.get('mask_ratio')), 
                             end=' ')
-                        if args.attn_type != 'none':
-                            print('mask_added:%.4f' % (avg_meter.get('mask_added_ratio')), end=' ')    
                     print('ETA: %s' % (timer.get_est_remain()), flush=True)
 
                     ### wandb logging Scalars, Histograms, Images ###

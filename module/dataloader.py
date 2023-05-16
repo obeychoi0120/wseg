@@ -28,19 +28,10 @@ def get_dataloader(args):
             img_id_list_file    = args.train_list,
             img_root            = args.data_root,
             crop_size           = args.crop_size,
+            strong_crop_size    = args.strong_crop_size,
             resize_size         = args.resize_size,
             **ssl_params
         )
-            # tv_transform        = transforms.Compose([
-            #                     imutils.RandomResizeLong(args.resize_size[0], args.resize_size[1]),
-            #                     transforms.RandomHorizontalFlip(),
-            #                     transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.1),
-            #                     np.asarray,
-            #                     Normalize(),
-            #                     imutils.RandomCrop(args.crop_size),
-            #                     imutils.HWC_to_CHW,
-            #                     torch.from_numpy
-            # ]))
     elif args.network_type in ['eps', 'contrast']:
         train_dataset = CLS_SAL_DATASET(
             dataset             = args.dataset,
@@ -48,19 +39,11 @@ def get_dataloader(args):
             img_root            = args.data_root,
             saliency_root       = args.saliency_root,
             crop_size           = args.crop_size,
+            strong_crop_size    = args.strong_crop_size,
             resize_size         = args.resize_size,
             **ssl_params
         )
-    # elif args.network_type == 'eps_seam' or args.network_type == 'eps_seam_with_PCM':
-    #     train_dataset = CLS_SAL_DATASET(
-    #         dataset             = args.dataset,
-    #         img_id_list_file    = args.train_list,
-    #         img_root            = args.data_root,
-    #         saliency_root       = args.saliency_root,
-    #         crop_size           = args.crop_size,
-    #         resize_size         = args.resize_size,
-    #         **ssl_params
-    #     )
+
     else:
         raise Exception("No appropriate train type")
 
