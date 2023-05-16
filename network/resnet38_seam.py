@@ -21,15 +21,16 @@ class Net(network.resnet38d.Net):
         self.from_scratch_layers = [self.f8_3, self.f8_4, self.f9, self.fc8]
         self.not_training = [self.conv1a, self.b2, self.b2_1, self.b2_2]
 
-    def forward(self, img):
+    def forward(self, img, return_feat=True):
         N, C, H, W = img.size()
         d = super().forward_as_dict(img)
-        cam = self.fc8(self.dropout7(d['conv6']))
+        feat = d['conv6']
+        cam = self.fc8(self.dropout7(feat))
         n,c,h,w = cam.size()
 
         with torch.no_grad():
             cam_d = F.relu(cam.detach())
-            cam_d_max = torch.max(cam_d.view(n, c, -1), dim=-1)[0].view(n, c, 1, 1)+1e-5
+            cam_d_max = torch.max(cam_d.view(n, c, -1), dim=-1)[0].view(n, c, 1, 1) + 1e-5
             cam_d_norm = F.relu(cam_d - 1e-5) / cam_d_max
             cam_d_norm[:, -1, :, :] = 1 - torch.max(cam_d_norm[:, :-1, :, :], dim=1)[0]
             cam_max = torch.max(cam_d_norm[:, :-1, :, :], dim=1, keepdim=True)[0]
@@ -47,39 +48,41 @@ class Net(network.resnet38d.Net):
 
         pred_rv = F.avg_pool2d(cam_rv, kernel_size=(h, w), padding=0)
         pred_rv = pred_rv.view(pred_rv.size(0), -1)
-
-        return pred, cam, pred_rv, cam_rv
+        if return_feat:
+            return pred, cam, pred_rv, cam_rv, feat
+        else:
+            return pred, cam, pred_rv, cam_rv
 
     def forward_cam(self, img):
         d = super().forward_as_dict(img)
         cam = self.fc8(self.dropout7(d['conv6']))
-        # return cam
-        n,c,h,w = cam.size()
-
+        return cam 
+    
+    def forward_cam_rv(self, img):
+        d = super().forward_as_dict(img)
+        cam = self.fc8(self.dropout7(d['conv6']))
+        n, c, h, w = cam.size()
         with torch.no_grad():
             cam_d = F.relu(cam.detach())
             cam_d_max = torch.max(cam_d.view(n, c, -1), dim=-1)[0].view(n, c, 1, 1)+1e-5
             cam_d_norm = F.relu(cam_d - 1e-5) / cam_d_max
+            
             cam_d_norm[:, -1, :, :] = 1 - torch.max(cam_d_norm[:, :-1, :, :], dim=1)[0]
             cam_max = torch.max(cam_d_norm[:, :-1, :, :], dim=1, keepdim=True)[0]
             cam_d_norm[:, :-1, :, :][cam_d_norm[:, :-1, :, :] < cam_max] = 0
-
+            
             f8_3 = F.relu(self.f8_3(d['conv4'].detach()), inplace=True)
             f8_4 = F.relu(self.f8_4(d['conv5'].detach()), inplace=True)
             x_s = F.interpolate(img, (h, w), mode='bilinear', align_corners=True)
             f = torch.cat([x_s, f8_3, f8_4], dim=1)
-
             cam_rv = self.PCM(cam_d_norm, f)
-
         return cam_rv
 
     def get_parameter_groups(self):
         groups = ([], [], [], [])
 
         for m in self.modules():
-
             if isinstance(m, nn.Conv2d):
-
                 if m.weight.requires_grad:
                     if m in self.from_scratch_layers:
                         groups[2].append(m.weight)

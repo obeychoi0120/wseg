@@ -3,14 +3,13 @@ DATASET_ROOT=../data/VOCdevkit/VOC2012/
 WEIGHT_ROOT=pretrained
 SALIENCY_ROOT=./SALImages
 
-GPU=0
+GPU=2
 
 # Default setting
 IMG_ROOT=${DATASET_ROOT}/JPEGImages
 SAL_ROOT=${DATASET_ROOT}/${SALIENCY_ROOT}
 BACKBONE=resnet38_contrast
-SESSION="0331/P_eps+ppc_nocutmix_154"
-# SESSION="test"
+SESSION="0515/P+_ppc+eps_s7_163"
 BASE_WEIGHT=${WEIGHT_ROOT}/ilsvrc-cls_rna-a1_cls1000_ep-0001.params
 
 # train classification network with Contrastive Learning
@@ -21,21 +20,19 @@ CUDA_VISIBLE_DEVICES=${GPU} python3 contrast_train.py \
     --data_root         ${IMG_ROOT} \
     --saliency_root     ${SAL_ROOT} \
     --weights           ${BASE_WEIGHT} \
-    --crop_size         448 \
-    --tau               0.4 \
-    --max_iters         10000 \
-    --iter_size         2   \
-    --batch_size        8   \
-    --val_times 	    20  \
-    --p_cutoff          0.95 \
-    --use_ema               \
-    --use_wandb             \
-    # --use_cutmix
-    # --attn_cutoff       0.95 \
-    # --attn_mode         feat \
-    # --attn_type         gau  \
-    # --focal_p           4096 \
-    # --attn_temp         0.005  \
+    --crop_size         448     \
+    --tau               0.4     \
+    --max_iters         10000   \
+    --iter_size         2       \
+    --batch_size        8       \
+    --val_times 	    40      \
+    --p_cutoff          0.95    \
+    --use_ema                   \
+    --use_cutmix                \
+    --use_geom_augs             \
+    --n_strong_augs     5       \
+    --seed              7       \
+    --use_wandb                 \
     
 DATA=train # train / train_aug
 TRAINED_WEIGHT=train_log/${SESSION}/checkpoint.pth
@@ -46,8 +43,8 @@ CUDA_VISIBLE_DEVICES=${GPU} python3 contrast_infer.py \
     --network               network.${BACKBONE} \
     --weights               ${TRAINED_WEIGHT} \
     --thr                   0.22 \
-    --n_gpus                1 \
-    --n_processes_per_gpu   1 \
+    --n_gpus                1   \
+    --n_processes_per_gpu   1   \
     --cam_png               train_log/${SESSION}/result/cam_png \
     --cam_npy               train_log/${SESSION}/result/cam_npy \
     --crf                   train_log/${SESSION}/result/crf_png \

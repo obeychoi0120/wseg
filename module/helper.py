@@ -41,13 +41,13 @@ def calc_score(pred, gt, mask=None, num_cls=21):
 
 def get_masks_by_confidence(cam):
     '''
-    input: normalized class prob map [B, C, H, W]
+    input: CAM before softmax [B, C, H, W]
     output: list of masks [B, H, W] which belongs to confidence range of 
     [, 0.4), [0.4, 0.6), [0.6, 0.8), [0.8, 0.95), [0.95, 0.99), [0.99, ]
     '''
     masks = []
-    cam = torch.softmax(cam, dim=1)
-    _max_probs, _max_idx = torch.max(cam, dim=1)
+    # cam = torch.softmax(cam, dim=1)
+    _max_probs = cam.softmax(dim=1).max(dim=1).values
     masks.append(_max_probs.lt(0.4).float())
     masks.append(torch.logical_and(_max_probs.ge(0.4), _max_probs.lt(0.6)).float())
     masks.append(torch.logical_and(_max_probs.ge(0.6), _max_probs.lt(0.8)).float())
@@ -128,7 +128,8 @@ class Attn(nn.Module):
         self.softmax  = nn.Softmax(dim=1)
         self.relu = nn.ReLU()
         self.gau_kernel = torch.tensor(return_gau_mask()).to('cuda').float()
-    def forward(self, q, k, v, focal_mask, args):
+        self.focal_mask = focal_mask(56, 64)
+    def forward(self, q, k, v, args):
         """
             inputs :
                 x : input feature maps(B X C X H X W)
@@ -142,28 +143,24 @@ class Attn(nn.Module):
         mask_q      = (1 - mask).unsqueeze(dim=1).view(B, -1, H*W).permute(0,2,1)  # B, HW, 1
         mask_k      = mask.unsqueeze(dim=1).view(B, -1, H*W)                       # B, 1, HW
         mask_qk    = torch.bmm(mask_q, mask_k)                                     # B, HW, HW
-        # if not args.attn_conv:
-        #     self.query_conv = nn.Identity()
-        #     self.key_conv   = nn.Identity()
-        #     self.value_conv = nn.Identity()
         proj_query  = q.view(B, -1, H*W).permute(0,2,1)                 # B, C, HW
         proj_query  = F.normalize(proj_query, dim=1)                    # B, HW, C
         proj_key    = k.view(B, -1, H*W)                   # B, C, HW
         proj_key    = F.normalize(proj_key, dim=1)
-        energy      = torch.bmm(proj_query, proj_key)/args.attn_temp
+        energy      = torch.bmm(proj_query, proj_key) / args.attn_tau
         if args.attn_type=='e':
             attention = self.softmax(energy)    # naive attn
         elif args.attn_type=='et':
             attention = self.softmax(energy*mask_qk)   # et
-        elif args.attn_type=='ef':
-            attention = self.softmax(energy*focal_mask) # ef
-        elif args.attn_type=='e-f':
-            attention = self.softmax(energy)*focal_mask # e-f
-        elif args.attn_type=='etf':
-            attention = self.softmax(energy*mask_qk*focal_mask)    # etf
-        elif args.attn_type=='et-f':
-            attention = self.softmax(energy*mask_qk)*focal_mask    # et-f
-        elif args.attn_type=='gau': 
+        # elif args.attn_type=='ef':
+        #     attention = self.softmax(energy*self.focal_mask) # ef
+        # elif args.attn_type=='e-f':
+        #     attention = self.softmax(energy)*focal_mask # e-f
+        # elif args.attn_type=='etf':
+        #     attention = self.softmax(energy*mask_qk*focal_mask)    # etf
+        # elif args.attn_type=='et-f':
+        #     attention = self.softmax(energy*mask_qk)*focal_mask    # et-f
+        elif args.attn_type=='gau':
             attention = self.softmax(energy*self.gau_kernel)
 
         proj_value  = v.view(B, -1, H*W)           # B, 21, HW
@@ -210,32 +207,27 @@ class Self_Attn(nn.Module):
         y = self.gamma*out + x                                              
         return y, out, x, self.gamma
 
-def focal_mask(feat, pow):
-    B, C, H, W = feat.size()
-    src_i       = torch.arange(H, device='cuda').repeat_interleave(W)
-    diff_i      = src_i.repeat(H*W, 1) - src_i.unsqueeze(1)
-    src_j       = torch.arange(W, device='cuda').repeat(H)
-    diff_j      = src_j.repeat(H*W, 1) - src_j.unsqueeze(1)
-    diff        = (torch.sqrt(diff_i ** 2 + diff_j ** 2) / (H*W)).unsqueeze(0)
+def focal_mask(feat_size, pow):
+    src_i       = torch.arange(feat_size, device='cuda').repeat_interleave(feat_size)
+    diff_i      = src_i.repeat(feat_size*feat_size, 1) - src_i.unsqueeze(1)
+    src_j       = torch.arange(feat_size, device='cuda').repeat(feat_size)
+    diff_j      = src_j.repeat(feat_size*feat_size, 1) - src_j.unsqueeze(1)
+    diff        = (torch.sqrt(diff_i ** 2 + diff_j ** 2) / (feat_size*feat_size)).unsqueeze(0)
     mask = (1.0 - diff) ** pow 
     return mask
 
 def get_avg_meter(args):
-    log_keys = ['loss_cls']
-    if args.network_type == 'cls':
-        log_keys.extend(['loss'])
+    log_keys = ['loss_cls', 'loss_sup']
     if args.network_type == 'seam':
-        log_keys.extend(['loss', 'loss_er', 'loss_ecr'])
+        log_keys.extend(['loss_er', 'loss_ecr', 'loss_er_s', 'loss_ecr_s'])
     elif args.network_type == 'eps':
-        log_keys.extend(['loss', 'loss_sal'])
+        log_keys.extend(['loss_sal'])
     elif args.network_type == 'contrast':
-        log_keys.extend(['loss', 'loss_er', 'loss_ecr','loss_sal', 'loss_nce'])
+        log_keys.extend(['loss_er', 'loss_ecr', 'loss_er_s', 'loss_ecr_s', 'loss_nce', 'loss_sal', 'loss_sal_s'])
     if args.mode in ['v2', 'ssl']:
         log_keys.extend([
-            'loss_ssl','loss_ssl_1', 'loss_ssl_2', 'loss_ssl_3', 'loss_ssl_4', 'loss_ssl_5', 'loss_ssl_6', \
+            'loss', 'loss_semcon','loss_semcon_1', 'loss_semcon_2', 'loss_semcon_3', 'loss_semcon_4', 'loss_semcon_5', 'loss_semcon_6', \
             'mask_1', 'mask_2', 'mask_3','mask_4', 'mask_5', 'mask_6', 'mask_ratio'])
-        if args.use_attn:
-            log_keys.extend(['attn_max', 'mask2_ratio', 'maskU_ratio'])
     avg_meter = pyutils.AverageMeter(*log_keys)
     return avg_meter
     

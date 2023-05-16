@@ -24,6 +24,7 @@ def get_arguments():
     parser.add_argument('--use_wandb', action='store_true') ### Use wandb Logging
     parser.add_argument('--log_freq', default=50, type=int)
     parser.add_argument('--val_times', default=20, type=int)
+    parser.add_argument('--seed', default=None, type=int)
 
     # Data
     parser.add_argument("--dataset", default='voc12', choices=dataset_list, type=str)
@@ -60,11 +61,7 @@ def get_arguments():
     parser.add_argument('--ulb_saliency_root', default=None, type=str)
     parser.add_argument('--train_ulb_list', default='', type=str)
     parser.add_argument('--mu', default=1.0, type=float) # ratio of ulb / lb data
-
-    parser.add_argument('--ulb_aug_type', default='strong', type=str) # None / weak / strong : 'aug_type'
-    parser.add_argument('--n_strong_aug', default=5, type=int) # number of RandAug
-    parser.add_argument('--use_cutmix', action='store_true') # Use CutMix
-
+        
     parser.add_argument('--use_ema',action='store_true') 
     parser.add_argument('--ema_m', default=0.999, type=float) 
     parser.add_argument('--mt_warmup', type=float, default=0.4) # mean teacher warmup
@@ -72,23 +69,20 @@ def get_arguments():
     parser.add_argument('--mt_p', default=0., type=float) # ratio of ssl loss
     parser.add_argument('--ssl_lambda', default=1.0, type=float) # ratio of ssl loss
     parser.add_argument('--p_cutoff', default=0.95, type=float)
-
-    parser.add_argument('--attn_cutoff', type=float)
     parser.add_argument('--th_scheduler', action='store_true') # Threshold Scheduler
     parser.add_argument('--T', type=float, default=0.5)
     parser.add_argument('--soft_label', action='store_true') # hard label(Default) or soft label
-
     parser.add_argument('--cdc_lambda', default=1.0, type=float) # ratio of cdc loss
     parser.add_argument('--cdc_T', default=0.5, type=float) # Temperature of cdc loss
     parser.add_argument('--cdc_norm', action='store_true') # Normalize feature to calculate cdc loss
     parser.add_argument('--cdc_inter', action='store_true') # Calculate Inter-image pixel    
     
-    ####    Label Propagation   ####
-    parser.add_argument('--use_attn', action='store_true')
-    parser.add_argument('--attn_type', type=str, choices=['e', 'et', 'ef', 'e-f', 'etf', 'et-f', 'gau'])
-    parser.add_argument('--attn_temp', type = float, default=0.01)
-    parser.add_argument('--focal_p', default=256, type=int)
-    parser.add_argument('--require_feats_high', action='store_true')
+    ### Augmentations ###
+    parser.add_argument('--ulb_aug_type', default='strong', type=str) # None / weak / strong : 'aug_type'
+    parser.add_argument('--n_strong_augs', required=True, type=int) # number of RandAug
+    parser.add_argument('--use_cutmix', action='store_true') # Use CutMix
+    parser.add_argument('--patch_k', default=None, type=int)
+    parser.add_argument('--use_geom_augs', action='store_true')
     
     args = parser.parse_args()
 
@@ -118,7 +112,7 @@ def get_arguments():
         args.network_type = 'contrast'
     else:
         raise Exception('No appropriate model type')
-
+    
     return args
 
 
@@ -129,8 +123,6 @@ if __name__ == '__main__':
     # Set wandb Logger
     if args.use_wandb:
         wandb.init(name=args.session, project='WSSS')
-        # wandb.run.id = wandb.run.name
-        # wandb.run.save()
 
     # Set Python Logger
     args.log_folder = os.path.join('train_log', args.session)
@@ -138,17 +130,15 @@ if __name__ == '__main__':
 
     pyutils.Logger(os.path.join(args.log_folder, 'log_cls.log'))
     shutil.copyfile('./contrast_train.py', os.path.join(args.log_folder, 'contrast_train.py'))
+    shutil.copyfile('./contrast_infer.py', os.path.join(args.log_folder, 'contrast_infer.py'))
     shutil.copyfile('./module/train.py', os.path.join(args.log_folder, 'train.py'))
     shutil.copyfile('./module/ssl.py', os.path.join(args.log_folder, 'ssl.py'))
     shutil.copyfile('./module/helper.py', os.path.join(args.log_folder, 'helper.py'))
     if 'seam' in args.network:
-        shutil.copyfile('./script/voc_seam.sh', os.path.join(args.log_folder, 'voc_seam.sh'))
         shutil.copyfile('./network/resnet38_seam.py', os.path.join(args.log_folder, 'resnet38_seam.py'))
     elif 'contrast' in args.network:
-        shutil.copyfile('./script/voc_ppc.sh', os.path.join(args.log_folder, 'voc_ppc.sh'))
         shutil.copyfile('./network/resnet38_contrast.py', os.path.join(args.log_folder, 'resnet38_contrast.py'))
     elif 'eps' in args.network:
-        shutil.copyfile('./script/voc_eps.sh', os.path.join(args.log_folder, 'voc_eps.sh'))
         shutil.copyfile('./network/resnet38_eps.py', os.path.join(args.log_folder, 'resnet38_eps.py'))
 
     # Load dataset (train_ulb_loader=None where args.ssl==False)

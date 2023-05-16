@@ -25,14 +25,10 @@ class Net(network.resnet38d.Net):
         d = super().forward_as_dict(img)
         feats_high = d['conv6']
         feats = F.relu(self.proj_fc(feats_high), inplace=True)
-
         ### remove feature discintiveness ###
         # feats_high = feats_high - feats_high.mean(dim=(1,2), keepdim=True).detach()
-
         cam = self.fc8(feats_high)
-
         n, c, h, w = cam.size()
-
         with torch.no_grad():
             cam_d = F.relu(cam.detach())
             cam_d_max = torch.max(cam_d.view(n, c, -1), dim=-1)[0].view(n, c, 1, 1)+1e-5
@@ -60,33 +56,10 @@ class Net(network.resnet38d.Net):
             return pred, cam, pred_rv, cam_rv, feats, feats_high
 
     def forward_cam(self, x):
-        x = super().forward(x)
-        cam = self.fc8(x)
-
+        d = super().forward_as_dict(x)
+        cam = self.fc8(d['conv6'])
         return cam
-
-    # def forward_cam(self, img):
-    #     d = super().forward_as_dict(img)
-    #     cam = self.fc8(d['conv6'])
-    #     # return cam
-    #     n,c,h,w = cam.size()
-    #     with torch.no_grad():
-    #         cam_d = F.relu(cam.detach())
-    #         cam_d_max = torch.max(cam_d.view(n, c, -1), dim=-1)[0].view(n, c, 1, 1)+1e-5
-    #         cam_d_norm = F.relu(cam_d - 1e-5) / cam_d_max
-    #         cam_d_norm[:, -1, :, :] = 1 - torch.max(cam_d_norm[:, :-1, :, :], dim=1)[0]
-    #         cam_max = torch.max(cam_d_norm[:, :-1, :, :], dim=1, keepdim=True)[0]
-    #         cam_d_norm[:, :-1, :, :][cam_d_norm[:, :-1, :, :] < cam_max] = 0
-
-    #         f8_3 = F.relu(self.f8_3(d['conv4'].detach()), inplace=True)
-    #         f8_4 = F.relu(self.f8_4(d['conv5'].detach()), inplace=True)
-    #         x_s = F.interpolate(img, (h, w), mode='bilinear', align_corners=True)
-    #         f = torch.cat([x_s, f8_3, f8_4], dim=1)
-    #         cam_rv = self.PCM(cam_d_norm, f)
-
-    #     return cam_rv
-
-
+    
     def get_parameter_groups(self):
         groups = ([], [], [], [])
 

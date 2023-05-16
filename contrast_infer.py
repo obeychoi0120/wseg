@@ -119,7 +119,11 @@ def predict_cam(model, image, label, gpu, args):
         with torch.no_grad():
             image = torch.from_numpy(image).unsqueeze(0)
             image = image.cuda(gpu)
-            cam = model.forward_cam(image)
+            
+            if args.network_type == 'seam':
+                cam = model.forward_cam_rv(image)
+            else:
+                cam = model.forward_cam(image)
 
             if args.is_unlabeled:
                 if args.pl_method == 'all': # remain all class predictions
@@ -132,23 +136,25 @@ def predict_cam(model, image, label, gpu, args):
                     label = None
             
             if args.network_type == 'cls' :
-                cam = F.softmax(cam[:,:-1], dim=1)
-                cam = F.interpolate(cam, original_image_size, mode='bilinear', align_corners=False)[0]
+                # cam = F.softmax(cam[:,:-1], dim=1)
+                cam = F.interpolate(cam[:,:-1], original_image_size, mode='bilinear', align_corners=False)[0]
                 cam = cam.cpu().numpy() * label.reshape(args.num_sample-1, 1, 1)
-
                 if i % 2 == 1:
                     cam = np.flip(cam, axis=-1)
                 cam_list.append(cam)
             
             elif args.network_type == 'seam':
-                cam = F.softmax(cam, dim=1)
-                cam = F.interpolate(cam[:, :-1, :, :], original_image_size, mode='bilinear', align_corners=False)[0]
-                cam = cam.cpu().numpy() * label.reshape(args.num_sample-1, 1, 1)
-                if i % 2 == 1:
-                    cam = np.flip(cam, axis=-1)
-                cam_list.append(cam)
+                # cam = F.softmax(cam, dim=1)
+                cam = F.interpolate(cam, original_image_size, mode='bilinear', align_corners=False)[0]
 
-            elif args.network_type == 'eps' or args.network_type == 'contrast':
+                cam_fg = cam[:-1]
+                cam_fg = cam_fg.cpu().numpy() * label.reshape(args.num_sample-1, 1, 1)
+
+                if i % 2 == 1:
+                    cam_fg = np.flip(cam_fg, axis=-1)
+                cam_list.append(cam_fg)
+
+            elif args.network_type in ['eps', 'contrast']:
                 cam = F.softmax(cam, dim=1)
                 cam = F.interpolate(cam, original_image_size, mode='bilinear', align_corners=False)[0]
 
@@ -199,7 +205,7 @@ def infer_cam_mp(process_id, image_ids, label_list, cur_gpu, num_class=21):
 
         # infer cam_list(labeled)
         cam_list = predict_cam(model, img, label, cur_gpu, args)
-
+        
         if args.network_type == 'seam':
             sum_cam = np.sum(cam_list, axis=0)
             sum_cam[sum_cam < 0] = 0
@@ -207,11 +213,17 @@ def infer_cam_mp(process_id, image_ids, label_list, cur_gpu, num_class=21):
             cam_min = np.min(sum_cam, (1, 2), keepdims=True)
             sum_cam[sum_cam < cam_min + 1e-5] = 0
             norm_cam = (sum_cam - cam_min - 1e-5) / (cam_max - cam_min + 1e-5)
+
         elif args.network_type in ['cls', 'eps_seam', 'eps', 'contrast']:
             cam_np = np.array(cam_list)
-            # cam_fg = cam_np[:, 0]
             sum_cam = np.sum(cam_np, axis=0)
             norm_cam = sum_cam / (np.max(sum_cam, (1, 2), keepdims=True) + 1e-5)
+            # sum_cam = np.sum(cam_list, axis=0)
+            # sum_cam[sum_cam < 0] = 0
+            # cam_max = np.max(sum_cam, (1, 2), keepdims=True)
+            # cam_min = np.min(sum_cam, (1, 2), keepdims=True)
+            # sum_cam[sum_cam < cam_min + 1e-5] = 0
+            # norm_cam = (sum_cam - cam_min - 1e-5) / (cam_max - cam_min + 1e-5)
         else:
             raise Exception('No appropriate model type')
 

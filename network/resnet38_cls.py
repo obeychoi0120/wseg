@@ -17,26 +17,17 @@ class Net(network.resnet38d.Net):
         self.not_training = [self.conv1a, self.b2, self.b2_1, self.b2_2]
         self.from_scratch_layers = [self.fc8]
 
-    def forward(self, x, forward_cam=False):
+    def forward(self, x):
         x = super().forward(x)
+        cam = F.conv2d(x, self.fc8.weight)
+        cam = F.relu(cam)
         x = self.dropout7(x)
+        x = F.avg_pool2d(x, kernel_size=(x.size(2), x.size(3)), padding=0)
 
-        if forward_cam:
-            cam = F.conv2d(x, self.fc8.weight)
+        x = self.fc8(x)
+        x = x.view(x.size(0), -1)
 
-            _, _, h, w = cam.size()
-            pred = F.avg_pool2d(cam, kernel_size=(h, w), padding=0)
-
-            pred = pred.view(pred.size(0), -1)
-            return pred, cam
-
-        else:
-            x = F.avg_pool2d(x, kernel_size=(x.size(2), x.size(3)), padding=0)
-
-            x = self.fc8(x)
-            x = x.view(x.size(0), -1)
-            
-            return x
+        return x, cam
         
     def forward_cam(self, x):
         x = super().forward(x)

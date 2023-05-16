@@ -1,10 +1,12 @@
 import random
 import os.path
-import PIL.Image
+import PIL
+from PIL import Image
 import numpy as np
 from tqdm import tqdm
-
+import pdb
 import torch
+import torch.nn.functional as F
 from torch.utils.data import Dataset
 from torchvision import transforms
 import torchvision.transforms.functional as vision_tf
@@ -57,7 +59,7 @@ class ImageDataset(Dataset):
     Performs Weak or Strong Augmentations.
     """
     def __init__(self, dataset, img_id_list_file, img_root, tv_transform=None,
-                 crop_size=224, resize_size=(256, 512), aug_type=None, n_strong_aug=5):
+                 crop_size=448, resize_size=(448, 768), aug_type=None, use_geom_augs=False, n_strong_augs=5, patch_k=None):
         self.dataset = dataset
         self.img_id_list = load_img_id_list(img_id_list_file)
         self.img_root = img_root
@@ -65,19 +67,21 @@ class ImageDataset(Dataset):
         self.tv_transform = tv_transform
         
         # or (2).Weak & Strong Augmentations
-        self.crop_size = crop_size
+        self.weak_crop_size = crop_size
         self.resize_size = resize_size
         self.aug_type = aug_type
+        self.patch_k = patch_k
+        self.use_geom_augs = use_geom_augs
 
         self.resize = RandomResizeLong(resize_size[0], resize_size[1])
-        self.color = transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.1)
+        self.colorjitter = transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.1)
         self.normalize = Normalize()
 
         if self.aug_type == 'strong': ###
             blur_kernel_size = int(random.random() * 4.95)
             blur_kernel_size = blur_kernel_size + 1 if blur_kernel_size % 2 == 0 else blur_kernel_size
             self.strong_transforms = [transforms.GaussianBlur(blur_kernel_size, sigma=(0.1, 2.0))] # non-geometric transformations
-            self.randaug = RandAugment(n_strong_aug, 5) ###
+            self.randaug = RandAugment(self.use_geom_augs, n_strong_augs, 5)
 
     def __len__(self):
         return len(self.img_id_list)
@@ -93,61 +97,94 @@ class ImageDataset(Dataset):
         # Use weak | strong augmentations
         else:
             ### Image 1. Weak Augmentation ###
-            img1, weak_tr = self.__apply_transform(img, get_transform=True)
-            img1 = self.__totensor(img1)
-
+            # weak_tr : (resize_size, hflip, tr_random_crop)
+            img1, (weak_resize_size, weak_hflip, weak_box) = self.__apply_transform(img,
+                                                                                    get_transform=True, 
+                                                                                    strong=False, 
+                                                                                    resize_size=None,
+                                                                                    crop_size=self.weak_crop_size, 
+                                                                                    hflip=None, 
+                                                                                    box=None)
+            img1 = self.__totensor(img1)    # (448, 448)
             if not self.aug_type:
                 return img_id, img1
 
-            ### Image 2. Weak augmentation ###
-            elif self.aug_type == 'weak':
-                img2, _  = self.__apply_transform(img, True, False, *weak_tr)
-                img2 = self.__totensor(img2)
-
-                return img_id, img1, img2, []
-
             ### Image 2. Strong augmetation (for consistency regularization) ###
             elif self.aug_type == 'strong':
-                img2, _, strong_tr = self.__apply_transform(img, True, True, *weak_tr)
+                img2, tr_ops, randaug_ops = self.__apply_transform(img,
+                                                                   get_transform=True,
+                                                                   strong=True,
+                                                                   resize_size=weak_resize_size,
+                                                                   crop_size=self.weak_crop_size, 
+                                                                   hflip=weak_hflip,
+                                                                   box=weak_box,
+                                                                   patch_k = self.patch_k
+                                                                   ) 
+
                 img2 = self.__totensor(img2)
-                
-                return img_id, img1, img2, strong_tr
+                return img_id, img1, img2, tr_ops, randaug_ops
 
             else:
                 raise Exception('No appropriate Augmentation type')
     
-    def __apply_transform(self, img, get_transform=False, strong=False, target_size=None, hflip=None, tr_random_crop=None):
+    def __apply_transform(self, img, get_transform=False, strong=False, resize_size=None, crop_size=None, hflip=None, box=None, patch_k=None):
         # randomly resize
-        if target_size is None:
-            target_size = random.randint(self.resize_size[0], self.resize_size[1])
-        img = self.resize(img, target_size)
+        if resize_size is None:
+            resize_size = random.randint(self.resize_size[0], self.resize_size[1])
+        img = self.resize(img, resize_size)
 
         # Randomly flip
         if hflip is None:
             hflip = random.random() > 0.5
-        img = vision_tf.hflip(img)
+        if hflip == True:
+            img = vision_tf.hflip(img)
 
         # Add color jitter
-        img = self.color(img)
-
+        img = self.colorjitter(img)
+        img = np.asarray(img)
+        
         # Random Crop
-        img, _, tr_random_crop = random_crop_with_saliency_pil(img, crop_size=self.crop_size, get_transform=True, transforms=tr_random_crop)
+        img, _, tr_box = random_crop_with_saliency(imgarr=img, 
+                                                   sal=None,
+                                                   crop_size=crop_size,
+                                                   get_box=True, 
+                                                   box=box)
 
         # Strong Augmentation
         if strong:
             for tr in self.strong_transforms:
-                img = tr(img)
-            img, strong_tr = self.randaug(img) # saliency2
+                if patch_k:
+                    assert img.shape == (self.weak_crop_size, self.weak_crop_size, 3)
+                    new_img = np.zeros_like(img)
+                    # patch IMG into nxn eq-sized patches
+                    patch_size = img.shape[0]//patch_k
+                    randaug_ops = []
+                    for i in range(patch_k):
+                        for j in range(patch_k):
+                            patch = img[i*patch_size:(i+1)*patch_size, j*patch_size:(j+1)*patch_size, :]
+                            patch = Image.fromarray(patch)
+                            patch = tr(patch)
+                            aug_patch, aug_ops = self.randaug(patch)
+                            new_img[i*patch_size:(i+1)*patch_size, j*patch_size:(j+1)*patch_size, :] = aug_patch
+                            randaug_ops.append(aug_ops)
+                    img = new_img
+                    assert len(randaug_ops) == patch_k**2
+                else:
+                    img = Image.fromarray(img)
+                    img = tr(img)
+                    img, randaug_ops = self.randaug(img)
+        
+            # Make numpy array
+            img = np.asarray(img, dtype=np.float32)
 
-        # Make numpy and normalize
-        img = np.asarray(img, dtype=np.float32)
+        # normalize
         img = self.normalize(img)
 
         if get_transform: ###
             if strong:
-                return img, (target_size, hflip, tr_random_crop), strong_tr
+                return img, (resize_size, hflip, tr_box), randaug_ops
             else:
-                return img, (target_size, hflip, tr_random_crop)
+                return img, (resize_size, hflip, tr_box)
         else:
             return img
     
@@ -180,7 +217,6 @@ class ClassificationDatasetWithSaliency(ImageDataset):
         super().__init__(**kwargs)
         # self.tv_transform is useless in ClassificationDatasetWithSaliency
         self.saliency_root = saliency_root
-
         self.label_list = load_img_label_list_from_npy(self.img_id_list, self.dataset)
 
     def __getitem__(self, idx):
@@ -191,83 +227,126 @@ class ClassificationDatasetWithSaliency(ImageDataset):
         label = torch.from_numpy(self.label_list[idx])
 
         ### Image 1 ###
-        img1, saliency1, weak_tr = self.__apply_transform_with_mask(img, saliency, get_transform=True)
+        img1, saliency1, (weak_resize_size, weak_hflip, weak_box) = self.__apply_transform_with_sal(img, 
+                                                                                                    saliency, 
+                                                                                                    get_transform=True,
+                                                                                                    strong=False,
+                                                                                                    resize_size=None,
+                                                                                                    crop_size=self.weak_crop_size,
+                                                                                                    hflip=None,
+                                                                                                    box=None)
+        
         img1, saliency1 = self.__totensor(img1, saliency1)
-
         if not self.aug_type:
             return img_id, img1, saliency1, label
 
-        ### Image 2: Weak augmentation (for Mean Teacher)
-        elif self.aug_type == 'weak':
-            img2, saliency2, _  = self.__apply_transform_with_mask(img, saliency, True, False, *weak_tr)
-            img2, saliency2 = self.__totensor(img2, saliency2)
+        # ### Image 2: Weak augmentation (for Mean Teacher)
+        # elif self.aug_type == 'weak':
+        #     img2, saliency2, _  = self.__apply_transform_with_sal(img, saliency, True, False, *weak_tr)
+        #     img2, saliency2 = self.__totensor(img2, saliency2)
 
-            return img_id, img1, saliency1, img2, saliency2, [], label
+        #     return img_id, img1, saliency1, img2, saliency2, [], label
 
         ### Image 2: Strong augmetation (for MT, FixMatch)
         elif self.aug_type == 'strong':
             ### TODO: mask transform, return aug information
-            img2, saliency2, _, strong_tr = self.__apply_transform_with_mask(img, saliency, True, True, *weak_tr)
+            img2, saliency2, tr_ops, randaug_tr = self.__apply_transform_with_sal(img, 
+                                                                                  saliency, 
+                                                                                  get_transform=True, 
+                                                                                  strong=True, 
+                                                                                  resize_size=weak_resize_size,
+                                                                                  crop_size=self.weak_crop_size,
+                                                                                  hflip=weak_hflip,
+                                                                                  box=weak_box,
+                                                                                  patch_k=self.patch_k
+                                                                                  )
             img2, saliency2 = self.__totensor(img2, saliency2)
-            
-            return img_id, img1, saliency1, img2, saliency2, strong_tr, label
+
+            return img_id, img1, saliency1, img2, saliency2, tr_ops, randaug_tr, label
         else:
             raise Exception('No appropriate Augmentation type')
 
-    def __apply_transform_with_mask(self, img, mask, get_transform=False, strong=False, target_size=None, hflip=None, tr_random_crop=None):
+    def __apply_transform_with_sal(self, img, sal, get_transform=False, strong=False, resize_size=None, crop_size=None, hflip=None, box=None, patch_k=None):
         # Randomly resize
-        if target_size is None:
-            target_size = random.randint(self.resize_size[0], self.resize_size[1])
-        img = self.resize(img, target_size)
-        mask = self.resize(mask, target_size)
+        if resize_size is None:
+            resize_size = random.randint(self.resize_size[0], self.resize_size[1])
+        img = self.resize(img, resize_size)
+        sal = self.resize(sal, resize_size)
 
         # Randomly flip
         if hflip is None:
             hflip = random.random() > 0.5
-        img = vision_tf.hflip(img)
-        mask = vision_tf.hflip(mask)
+        if hflip == True:
+            img = vision_tf.hflip(img)
+            sal = vision_tf.hflip(sal)
 
         # Add color jitter
-        img = self.color(img)
+        img = self.colorjitter(img)
 
         # Random Crop
-        img, mask, tr_random_crop = random_crop_with_saliency_pil(img, mask, self.crop_size, get_transform=True, transforms=tr_random_crop)
+        img = np.asarray(img)   # H, W, 3
+        sal = np.asarray(sal)   # H, W, 3
+        img, sal, tr_box = random_crop_with_saliency(imgarr=img,
+                                                     sal=sal,
+                                                     crop_size=crop_size,
+                                                     get_box=True, 
+                                                     box=box)
 
         # Strong Augmentation
         if strong:
             for tr in self.strong_transforms:
-                img = tr(img)
-                mask = tr(mask) if mask is not None else None ###
-            img, strong_tr = self.randaug(img) # saliency2
-            mask, _ = self.randaug(mask, trs=strong_tr, only_geometric=True)
-
-        # Make numpy array
-        img = np.asarray(img, dtype=np.float32)
-        mask = np.asarray(mask, dtype=np.float32)
-
+                if patch_k:
+                    assert img.shape == (self.weak_crop_size, self.weak_crop_size, 3)
+                    new_img = np.zeros_like(img)
+                    # patch IMG into nxn eq-sized patches
+                    patch_size = img.shape[0]//patch_k
+                    randaug_ops = []
+                    for i in range(patch_k):
+                        for j in range(patch_k):
+                            patch = img[i*patch_size:(i+1)*patch_size, j*patch_size:(j+1)*patch_size, :]
+                            patch = Image.fromarray(patch)
+                            patch = tr(patch)
+                            aug_patch, aug_ops = self.randaug(patch)
+                            new_img[i*patch_size:(i+1)*patch_size, j*patch_size:(j+1)*patch_size, :] = aug_patch
+                            randaug_ops.append(aug_ops)
+                    img = new_img
+                    sal = Image.fromarray(sal.astype(np.uint8))
+                    sal = tr(sal) if sal is not None else None
+                    # sal, _ = self.randaug(sal, trs=randaug_ops, only_geometric=True)  # not needed if no geom transforms
+                    assert len(randaug_ops) == patch_k**2
+                else:
+                    img = Image.fromarray(img)
+                    img = tr(img)
+                    sal = Image.fromarray(sal.astype(np.uint8))
+                    img, randaug_ops = self.randaug(img)        
+                    # sal, _ = self.randaug(sal, trs=randaug_ops, only_geometric=True)
+            
+            # Make numpy array
+            img = np.asarray(img, dtype=np.float32)
+            sal = np.asarray(sal, dtype=np.float32)
+            
         # Normalize
         img = self.normalize(img)
-        mask = mask / 255.
-        
-        if get_transform: ###
+        sal = sal / 255.
+
+        if get_transform:
             if strong:
-                return img, mask, (target_size, hflip, tr_random_crop), strong_tr
+                return img, sal, (resize_size, hflip, tr_box), randaug_ops
             else:
-                return img, mask, (target_size, hflip, tr_random_crop)
+                return img, sal, (resize_size, hflip, tr_box)
         else:
-            return img, mask
+            return img, sal
     
     def __totensor(self, img, mask=None):
-        # Permute Channels
+        # Permute to C, H, W
         img = HWC_to_CHW(img)
         mask = HWC_to_CHW(mask)
-        # Make numpy array
+        # Make torch tensor
         img = torch.from_numpy(img)
         mask = torch.from_numpy(mask)
         mask = torch.mean(mask, dim=0, keepdim=True)
-        
-        return img, mask
 
+        return img, mask
 
 class ClassificationDatasetOnMemory(ClassificationDataset):
     """

@@ -1,6 +1,7 @@
 from re import I
 import numpy as np
 import torch
+import random
 from torch.utils.data import DataLoader
 from torchvision import transforms
 
@@ -8,8 +9,15 @@ from data.dataset import ImageDataset, ClassificationDataset, ClassificationData
 from util import imutils
 from util.imutils import Normalize
 
+def seed_worker(worker_id):
+    worker_seed = torch.initial_seed() % (2**32)
+    np.random.seed(worker_seed)
+    random.seed(worker_seed)
 
 def get_dataloader(args):
+    if args.seed:
+        g = torch.Generator()
+        g.manual_seed(args.seed)
     if not args.data_on_mem:
         CLS_DATASET = ClassificationDataset
         CLS_SAL_DATASET = ClassificationDatasetWithSaliency
@@ -18,11 +26,16 @@ def get_dataloader(args):
         CLS_SAL_DATASET = ClassificationDatasetWithSaliencyOnMemory
 
     if args.mode != 'base': # ssl or v2
-        ssl_params = {'aug_type': args.ulb_aug_type, 'n_strong_aug': args.n_strong_aug}
+        ssl_params = {
+            'aug_type'      : args.ulb_aug_type, 
+            'n_strong_augs' : args.n_strong_augs,
+            'patch_k'       : args.patch_k, 
+            'use_geom_augs' : args.use_geom_augs
+            }
     else:
         ssl_params = {}
 
-    if args.network_type == 'cls':
+    if args.network_type in ['cls', 'seam']:
         train_dataset = CLS_DATASET(
             dataset             = args.dataset,
             img_id_list_file    = args.train_list,
@@ -31,25 +44,7 @@ def get_dataloader(args):
             resize_size         = args.resize_size,
             **ssl_params
         )
-            # tv_transform        = transforms.Compose([
-            #                     imutils.RandomResizeLong(args.resize_size[0], args.resize_size[1]),
-            #                     transforms.RandomHorizontalFlip(),
-            #                     transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.1),
-            #                     np.asarray,
-            #                     Normalize(),
-            #                     imutils.RandomCrop(args.crop_size),
-            #                     imutils.HWC_to_CHW,
-            #                     torch.from_numpy
-            # ]))
-    elif args.network_type in ['seam']:
-        train_dataset = CLS_DATASET(
-            dataset             = args.dataset,
-            img_id_list_file    = args.train_list,
-            img_root            = args.data_root,
-            crop_size           = args.crop_size,
-            resize_size         = args.resize_size,
-            **ssl_params
-        )
+        
     elif args.network_type in ['eps', 'contrast']:
         train_dataset = CLS_SAL_DATASET(
             dataset             = args.dataset,
@@ -60,27 +55,28 @@ def get_dataloader(args):
             resize_size         = args.resize_size,
             **ssl_params
         )
-    # elif args.network_type == 'eps_seam' or args.network_type == 'eps_seam_with_PCM':
-    #     train_dataset = CLS_SAL_DATASET(
-    #         dataset             = args.dataset,
-    #         img_id_list_file    = args.train_list,
-    #         img_root            = args.data_root,
-    #         saliency_root       = args.saliency_root,
-    #         crop_size           = args.crop_size,
-    #         resize_size         = args.resize_size,
-    #         **ssl_params
-    #     )
     else:
         raise Exception("No appropriate train type")
-
-    train_loader = DataLoader(
-        train_dataset, 
-        batch_size=args.batch_size, 
-        shuffle=True,
-        num_workers=args.num_workers, 
-        pin_memory=True, 
-        drop_last=True
-        )
+    if args.seed:
+        train_loader = DataLoader(
+            train_dataset, 
+            batch_size=args.batch_size, 
+            shuffle=True,
+            num_workers=args.num_workers,
+            worker_init_fn=seed_worker,
+            generator=g,
+            pin_memory=True, 
+            drop_last=True
+            )
+    else:
+        train_loader = DataLoader(
+            train_dataset, 
+            batch_size=args.batch_size, 
+            shuffle=True,
+            num_workers=args.num_workers,
+            pin_memory=True, 
+            drop_last=True
+            )
     
     try:
         val_dataset = CLS_DATASET(
@@ -119,7 +115,7 @@ def get_dataloader(args):
             crop_size           = args.crop_size,
             resize_size         = args.resize_size,
             aug_type            = args.ulb_aug_type,
-            n_strong_aug        = args.n_strong_aug
+            n_strong_augs        = args.n_strong_augs
             )
         train_ulb_loader = DataLoader(
             train_ulb_dataset, 

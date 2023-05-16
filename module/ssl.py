@@ -43,7 +43,7 @@ def get_ssl_loss(args, iteration, pred_s=None, pred_t=None, cam_s=None, cam_t=No
         # else:
         #   cutoff = args.p_cutoff
 
-        losses['loss_org'], losses['loss_pl'], losses['mask_pl'], _ = consistency_loss(cam_s, cam_t, 'ce', args.T, args.p_cutoff, args.soft_label, mask)
+        losses['loss_org'], losses['loss_pl'] = consistency_loss(cam_s, cam_t, 'ce', args.T, args.p_cutoff, args.soft_label, mask)
         losses['loss_ssl'] += losses['loss_pl'] * args.ssl_lambda
 
     ######           4. T(f(x)) <=> f(T(x)) InfoNCE loss          ######
@@ -62,20 +62,24 @@ def get_ssl_loss(args, iteration, pred_s=None, pred_t=None, cam_s=None, cam_t=No
 
 def consistency_loss(logits_s, logits_t, name='L2', T=1.0, p_cutoff=0.0, use_soft_label=False, mask=None):
     logits_t = logits_t.detach()
+    
     if name == 'ce':
         pseudo_label = torch.softmax(logits_t, dim=1)
-        # pseudo_label = logits_t
         max_probs, max_idx = torch.max(pseudo_label, dim=1)
+        # mask = max_probs.ge(p_cutoff).float()
         # mask = torch.where(max_idx < 20, mask, torch.zeros_like(mask)) # ignore background confidence
+        
         if not use_soft_label:  # 0217 current
-            org_loss = ce_loss(logits_s, max_idx, False, reduction='none')
+            org_loss = ce_loss(logits_s, max_idx, use_soft_label, reduction='none')
             masked_loss = (org_loss * mask).mean()
-            # masked_loss = (org_loss * mask).sum() / (mask.sum() + 1e-6)
+            # masked_loss = torch.div((org_loss*mask).sum(), mask.sum()) # NOPE
+            # l2_loss = F.mse_loss(logits_s, logits_t, reduction='none').mean()
+        
         else:   # soft label
             pseudo_label = torch.softmax(logits_t / T, dim=1)
             org_loss = ce_loss(logits_s, pseudo_label, use_soft_label)
-            masked_loss = ce_loss(logits_s, pseudo_label, use_soft_label) * mask
-        return org_loss, masked_loss, mask.mean(), max_idx.long()
+            masked_loss = org_loss * mask
+        return org_loss, masked_loss
     
     elif name == 'L2':
         assert logits_s.size() == logits_t.size()
@@ -194,7 +198,7 @@ def apply_strong_tr(img, ops, strong_transforms=None, fill_background=False):
                     kwargs['fillcolor'] = torch.zeros_like(img[i,:,0,0])
                     kwargs['fillcolor'][-1] = img[i].max()
                 # reample: NEAREST or BILINEAR, replace resample into interpolation(:InterpolationMode) after 0.10
-                img[i,:] = tvf.affine(img[i], resample=Image.BILINEAR, **kwargs) 
+                img[i,:] = tvf.affine(img[i], interpolation=InterpolationMode.BILINEAR, **kwargs)
     return img
 
 
@@ -217,40 +221,38 @@ def rand_bbox(size, l):
 
     return bbx1, bby1, bbx2, bby2
     
+def cutmix(img, cam1, feat1=None):
+    mix_img = img.clone()
+    mix_cam1 = cam1.clone()
+    if feat1 is not None:
+        mix_feat1 = feat1.clone()
+   
+    x_r1 = img.size(-1) / cam1.size(-1)
+    y_r1 = img.size(-2) / cam1.size(-2)
 
-def cutmix(img_ulb, target, mask=None):
-    mix_img_ulb = img_ulb.clone()
-    mix_target = target.clone()
-    if mask is not None:
-        mix_mask = mask.clone()
-
-    x_r = img_ulb.size(-1) / target.size(-1)
-    y_r = img_ulb.size(-2) / target.size(-2)
     # cam size == feat size
-    
-    u_rand_index = torch.randperm(img_ulb.size()[0])[:img_ulb.size()[0]].cuda()
-    u_bbx1, u_bby1, u_bbx2, u_bby2 = rand_bbox(img_ulb.size(), l=np.random.beta(4, 4))
+    u_rand_index = torch.randperm(img.size()[0])[:img.size()[0]].cuda()
+    u_bbx1, u_bby1, u_bbx2, u_bby2 = rand_bbox(img.size(), l=np.random.beta(4, 4))
 
-    u_bbx1_t, u_bby1_t, u_bbx2_t, u_bby2_t = (u_bbx1//x_r).astype(np.int32), (u_bby1//y_r).astype(np.int32), \
-                                             (u_bbx2//x_r).astype(np.int32), (u_bby2//y_r).astype(np.int32)
+    u_bbx1_t1, u_bby1_t1, u_bbx2_t1, u_bby2_t1 = (u_bbx1//x_r1).astype(np.int32), (u_bby1//y_r1).astype(np.int32), \
+                                             (u_bbx2//x_r1).astype(np.int32), (u_bby2//y_r1).astype(np.int32)
 
-    for i in range(0, mix_img_ulb.size(0)):
-        mix_img_ulb[i, :, u_bbx1[i]:u_bbx2[i], u_bby1[i]:u_bby2[i]] = \
-            img_ulb[u_rand_index[i], :, u_bbx1[i]:u_bbx2[i], u_bby1[i]:u_bby2[i]]
+    for i in range(0, mix_img.size(0)):
+        mix_img[i, :, u_bbx1[i]:u_bbx2[i], u_bby1[i]:u_bby2[i]] = \
+            img[u_rand_index[i], :, u_bbx1[i]:u_bbx2[i], u_bby1[i]:u_bby2[i]]
 
-        mix_target[i, :, u_bbx1_t[i]:u_bbx2_t[i], u_bby1_t[i]:u_bby2_t[i]] = \
-            target[u_rand_index[i], :, u_bbx1_t[i]:u_bbx2_t[i], u_bby1_t[i]:u_bby2_t[i]]
+        mix_cam1[i, :, u_bbx1_t1[i]:u_bbx2_t1[i], u_bby1_t1[i]:u_bby2_t1[i]] = \
+            cam1[u_rand_index[i], :, u_bbx1_t1[i]:u_bbx2_t1[i], u_bby1_t1[i]:u_bby2_t1[i]]        
         
-        if mask is not None:
-            mix_mask[i, :, u_bbx1[i]:u_bbx2[i], u_bby1[i]:u_bby2[i]] = \
-                mask[u_rand_index[i], :, u_bbx1[i]:u_bbx2[i], u_bby1[i]:u_bby2[i]]
-
-    del img_ulb, target
-    # import pdb; pdb.set_trace()
-    if mask is not None:
-        return mix_img_ulb, mix_target, mix_mask
+        if feat1 is not None:
+            mix_feat1[i, :, u_bbx1_t1[i]:u_bbx2_t1[i], u_bby1_t1[i]:u_bby2_t1[i]] = \
+            feat1[u_rand_index[i], :, u_bbx1_t1[i]:u_bbx2_t1[i], u_bby1_t1[i]:u_bby2_t1[i]] 
+            
+            
+    if feat1 is not None:
+        return mix_img, mix_cam1, mix_feat1
     else:    
-        return mix_img_ulb, mix_target
+        return mix_img, mix_cam1
 
 
 def class_discriminative_contrastive_loss(cam, feat, p_cutoff=0., inter=False, temperature=0.07, eps=1e-9, normalize=True):

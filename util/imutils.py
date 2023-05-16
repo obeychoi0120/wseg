@@ -1,12 +1,11 @@
 import PIL.Image
 import random
 import numpy as np
-
+import torch
 import torchvision.transforms.functional as vision_tf
 
 
 class RandomResizeLong:
-
     def __init__(self, min_long, max_long):
         self.min_long = min_long
         self.max_long = max_long
@@ -28,19 +27,14 @@ class RandomResizeLong:
 
         return img
 
-
-class RandomCrop:
-
+class RandomCrop():
     def __init__(self, cropsize):
         self.cropsize = cropsize
 
-    def __call__(self, imgarr):
-
+    def __call__(self, imgarr, sal=None):
         h, w, c = imgarr.shape
-
         ch = min(self.cropsize, h)
         cw = min(self.cropsize, w)
-
         w_space = w - self.cropsize
         h_space = h - self.cropsize
 
@@ -50,7 +44,6 @@ class RandomCrop:
         else:
             cont_left = random.randrange(-w_space+1)
             img_left = 0
-
         if h_space > 0:
             cont_top = 0
             img_top = random.randrange(h_space+1)
@@ -61,49 +54,58 @@ class RandomCrop:
         container = np.zeros((self.cropsize, self.cropsize, imgarr.shape[-1]), np.float32)
         container[cont_top:cont_top+ch, cont_left:cont_left+cw] = \
             imgarr[img_top:img_top+ch, img_left:img_left+cw]
+        if sal is not None:
+            container_sal = np.zeros((self.cropsize, self.cropsize,1), np.float32)
+            container_sal[cont_top:cont_top+ch, cont_left:cont_left+cw,0] = \
+                sal[img_top:img_top+ch, img_left:img_left+cw]
+            return container, container_sal
 
         return container
 
+def get_random_crop_box(imgsize, cropsize):
+    h, w = imgsize
 
-def random_crop_with_saliency(imgarr, mask, crop_size, get_transform=False, transforms=None):
+    ch = min(cropsize, h)
+    cw = min(cropsize, w)
 
+    w_space = w - cropsize
+    h_space = h - cropsize
+
+    if w_space > 0:
+        cont_left = 0
+        img_left = random.randrange(w_space + 1)
+    else:
+        cont_left = random.randrange(-w_space + 1)
+        img_left = 0
+
+    if h_space > 0:
+        cont_top = 0
+        img_top = random.randrange(h_space + 1)
+    else:
+        cont_top = random.randrange(-h_space + 1)
+        img_top = 0
+
+    return cont_top, cont_top+ch, cont_left, cont_left+cw, img_top, img_top+ch, img_left, img_left+cw
+
+def random_crop_with_saliency(imgarr, sal, crop_size, get_box=False, box=None): # wseg_org(no sal version)
     h, w, c = imgarr.shape
 
-    if transforms is None:
-        ch = min(crop_size, h)
-        cw = min(crop_size, w)
+    if box is None:
+        box = get_random_crop_box((h, w), crop_size)
 
-        w_space = w - crop_size
-        h_space = h - crop_size
-
-        if w_space > 0:
-            cont_left = 0
-            img_left = random.randrange(w_space+1)
-        else:
-            cont_left = random.randrange(-w_space+1)
-            img_left = 0
-
-        if h_space > 0:
-            cont_top = 0
-            img_top = random.randrange(h_space+1)
-        else:
-            cont_top = random.randrange(-h_space+1)
-            img_top = 0
+    img_cont = np.zeros((crop_size, crop_size, imgarr.shape[-1]), imgarr.dtype)
+    img_cont[box[0]:box[1], box[2]:box[3]] = imgarr[box[4]:box[5], box[6]:box[7]]
+    
+    if sal is not None:
+        sal_cont = np.zeros((crop_size, crop_size, sal.shape[-1]), np.float32)
+        sal_cont[box[0]:box[1], box[2]:box[3]] = sal[box[4]:box[5], box[6]:box[7]]
     else:
-        ch, cw, cont_left, img_left, cont_top, img_top = transforms
+        sal_cont = None
 
-    container = np.zeros((crop_size, crop_size, imgarr.shape[-1]), np.float32)
-    container_mask = np.zeros((crop_size, crop_size, imgarr.shape[-1]), np.float32)
-    container[cont_top:cont_top+ch, cont_left:cont_left+cw] = \
-        imgarr[img_top:img_top+ch, img_left:img_left+cw]
-    container_mask[cont_top:cont_top+ch, cont_left:cont_left+cw] = \
-        mask[img_top:img_top+ch, img_left:img_left+cw]
-
-    if get_transform: ###
-        return container, container_mask, [ch, cw, cont_left, img_left, cont_top, img_top]
+    if get_box:
+        return img_cont, sal_cont, box
     else:
-        return container, container_mask
-
+        return img_cont, sal_cont
 
 def random_crop_with_saliency_pil(img, mask=None, crop_size=448, get_transform=False, transforms=None):
     w, h = img.size
@@ -123,10 +125,10 @@ def random_crop_with_saliency_pil(img, mask=None, crop_size=448, get_transform=F
     img = vision_tf.crop(img, top, left, crop_size, crop_size)
 
     if mask is not None:
-        mask = vision_tf.pad(mask, [w_padding, h_padding, w_padding + w_space%2, h_padding + h_space%2])
+        mask = vision_tf.pad(mask, [w_padding, h_padding, w_padding+w_space%2, h_padding+h_space%2])
         mask = vision_tf.crop(mask, top, left, crop_size, crop_size)
    
-    if get_transform: ###
+    if get_transform:
         return img, mask, transforms
     else:
         return img, mask
@@ -143,7 +145,6 @@ class RandomHorizontalFlip():
 
 
 class CenterCrop():
-
     def __init__(self, cropsize, default_value=0):
         self.cropsize = cropsize
         self.default_value = default_value
