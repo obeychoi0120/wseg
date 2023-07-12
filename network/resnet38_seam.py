@@ -13,12 +13,19 @@ class Net(network.resnet38d.Net):
         self.f8_3 = torch.nn.Conv2d(512, 64, 1, bias=False)
         self.f8_4 = torch.nn.Conv2d(1024, 128, 1, bias=False)
         self.f9 = torch.nn.Conv2d(192 + 3, 192, 1, bias=False)
-        
+
         torch.nn.init.xavier_uniform_(self.fc8.weight)
         torch.nn.init.kaiming_normal_(self.f8_3.weight)
         torch.nn.init.kaiming_normal_(self.f8_4.weight)
         torch.nn.init.xavier_uniform_(self.f9.weight, gain=4)
-        self.from_scratch_layers = [self.f8_3, self.f8_4, self.f9, self.fc8]
+
+        # Added: multi-layer inference
+        # self.proj8_3 = torch.nn.Conv2d(64, 21, 1, bias=False)
+        # self.proj8_4 = torch.nn.Conv2d(128, 21, 1, bias=False)
+        # torch.nn.init.xavier_uniform_(self.proj8_3.weight)
+        # torch.nn.init.xavier_uniform_(self.proj8_4.weight)
+
+        self.from_scratch_layers = [self.f8_3, self.f8_4, self.f9, self.fc8] #self.proj8_3, self.proj8_4]
         self.not_training = [self.conv1a, self.b2, self.b2_1, self.b2_2]
 
     def forward(self, img, return_feat=True):
@@ -36,10 +43,18 @@ class Net(network.resnet38d.Net):
             cam_max = torch.max(cam_d_norm[:, :-1, :, :], dim=1, keepdim=True)[0]
             cam_d_norm[:, :-1, :, :][cam_d_norm[:, :-1, :, :] < cam_max] = 0
 
-        f8_3 = F.relu(self.f8_3(d['conv4'].detach()), inplace=True)
-        f8_4 = F.relu(self.f8_4(d['conv5'].detach()), inplace=True)
+        f8_3_ = F.relu(self.f8_3(d['conv4']), inplace=True)
+        f8_4_ = F.relu(self.f8_4(d['conv5']), inplace=True)
+
+        f8_3 = f8_3_.detach()
+        f8_4 = f8_4_.detach()
+        
+        # f8_3_ = F.relu(self.proj8_3(f8_3_), inplace=True)
+        # f8_4_ = F.relu(self.proj8_4(f8_4_), inplace=True)
+
         x_s = F.interpolate(img, (h, w), mode='bilinear', align_corners=True)
         f = torch.cat([x_s, f8_3, f8_4], dim=1)
+        feat_cat = torch.cat([f8_3_, f8_4_, feat], dim=1)
 
         cam_rv = self.PCM(cam_d_norm, f)
 
@@ -49,18 +64,21 @@ class Net(network.resnet38d.Net):
         pred_rv = F.avg_pool2d(cam_rv, kernel_size=(h, w), padding=0)
         pred_rv = pred_rv.view(pred_rv.size(0), -1)
         if return_feat:
-            return pred, cam, pred_rv, cam_rv, feat
+            return pred, cam, pred_rv, cam_rv, feat_cat
         else:
             return pred, cam, pred_rv, cam_rv
 
     def forward_cam(self, img):
         d = super().forward_as_dict(img)
-        cam = self.fc8(self.dropout7(d['conv6']))
+        # cam = self.fc8(self.dropout7(d['conv6']))
+        # dropout 뺸 것과 동일
+        cam = self.fc8(d['conv6'])
         return cam 
     
     def forward_cam_rv(self, img):
         d = super().forward_as_dict(img)
-        cam = self.fc8(self.dropout7(d['conv6']))
+        # cam = self.fc8(self.dropout7(d['conv6']))
+        cam = self.fc8(d['conv6'])
         n, c, h, w = cam.size()
         with torch.no_grad():
             cam_d = F.relu(cam.detach())

@@ -4,7 +4,6 @@ import numpy as np
 import torch
 import torchvision.transforms.functional as vision_tf
 
-
 class RandomResizeLong:
     def __init__(self, min_long, max_long):
         self.min_long = min_long
@@ -21,7 +20,7 @@ class RandomResizeLong:
             target_shape = (target_long, int(round(h * target_long / w)))
 
         if mode == 'image':
-            img = img.resize(target_shape, resample=PIL.Image.CUBIC)
+            img = img.resize(target_shape, resample=PIL.Image.BICUBIC)
         elif mode == 'mask':
             img = img.resize(target_shape, resample=PIL.Image.NEAREST)
 
@@ -106,32 +105,6 @@ def random_crop_with_saliency(imgarr, sal, crop_size, get_box=False, box=None): 
         return img_cont, sal_cont, box
     else:
         return img_cont, sal_cont
-
-def random_crop_with_saliency_pil(img, mask=None, crop_size=448, get_transform=False, transforms=None):
-    w, h = img.size
-    w_space = crop_size - w
-    h_space = crop_size - h
-    w_padding = w_space // 2 if w_space > 0 else 0
-    h_padding = h_space // 2 if h_space > 0 else 0
-
-    if transforms is None:
-        left = random.randrange(abs(w_padding)+1)
-        top = random.randrange(abs(h_padding)+1)
-        transforms = [left, top]
-    else:
-        left, top = transforms
-
-    img = vision_tf.pad(img, [w_padding, h_padding, w_padding + w_space%2, h_padding + h_space%2])
-    img = vision_tf.crop(img, top, left, crop_size, crop_size)
-
-    if mask is not None:
-        mask = vision_tf.pad(mask, [w_padding, h_padding, w_padding+w_space%2, h_padding+h_space%2])
-        mask = vision_tf.crop(mask, top, left, crop_size, crop_size)
-   
-    if get_transform:
-        return img, mask, transforms
-    else:
-        return img, mask
 
 
 class RandomHorizontalFlip():

@@ -6,7 +6,7 @@ import network.resnet38d
 class Net(network.resnet38d.Net):
     def __init__(self, num_class=21):
         super().__init__()
-        self.fc8 = nn.Conv2d(4096, num_class, 1, bias=False)
+        self.fc8 = nn.Conv2d(4096, num_class, 1, bias=False)    # 1x1 conv
         self.proj_fc = nn.Conv2d(4096, 128, 1, bias=False)
         self.f8_3 = torch.nn.Conv2d(512, 64, 1, bias=False)
         self.f8_4 = torch.nn.Conv2d(1024, 128, 1, bias=False)
@@ -19,11 +19,11 @@ class Net(network.resnet38d.Net):
         torch.nn.init.xavier_uniform_(self.f9.weight, gain=4)
 
         self.not_training = [self.conv1a, self.b2, self.b2_1, self.b2_2]
-        self.from_scratch_layers = [self.fc8, self.proj_fc, self.f8_3, self.f8_4, self.f9]
+        self.from_scratch_layers = [self.fc8, self.proj_fc, self.f8_3, self.f8_4, self.f9] #self.proj8_2, self.proj8_3, self.proj8_4]
 
     def forward(self, img, require_feats_high=False):
         d = super().forward_as_dict(img)
-        feats_high = d['conv6']
+        feats_high = d['conv6']     # 4096
         feats = F.relu(self.proj_fc(feats_high), inplace=True)
         ### remove feature discintiveness ###
         # feats_high = feats_high - feats_high.mean(dim=(1,2), keepdim=True).detach()

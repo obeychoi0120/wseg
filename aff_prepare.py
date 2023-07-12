@@ -6,17 +6,18 @@ import pandas as pd
 import multiprocessing
 import pydensecrf.densecrf as dcrf
 from pydensecrf.utils import unary_from_labels, create_pairwise_bilateral, create_pairwise_gaussian
+import time
 
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--infer_list", default="./VOC2012/ImageSets/Segmentation/trainaug.txt", type=str)
     parser.add_argument("--num_workers", default=8, type=int)
-    parser.add_argument("--voc12_root", default='VOC2012', type=str)
+    parser.add_argument("--img_root", default='VOC2012', type=str)
     parser.add_argument("--cam_dir", default=None, type=str)
     parser.add_argument("--out_crf", default=None, type=str)
     parser.add_argument("--crf_iters", default=10, type=float)
-    parser.add_argument("--alpha", default=4, type=float)
+    # parser.add_argument("--alpha", default=4, type=float)
 
     args = parser.parse_args()
 
@@ -62,25 +63,31 @@ if __name__ == '__main__':
             tensor[0, :, :] = np.power(1 - np.max(tensor, axis=0, keepdims=True), alpha)
 
             predict = np.argmax(tensor, axis=0).astype(np.uint8)
-            img = Image.open(os.path.join('./VOC2012/JPEGImages', name + '.jpg')).convert("RGB")
+            # img = Image.open(os.path.join('./VOC2012/JPEGImages', name + '.jpg')).convert("RGB")
+            img = Image.open(os.path.join(args.img_root, name + '.jpg')).convert("RGB")
             img = np.array(img)
             crf_array = _crf_inference(img, predict)
 
-            crf_folder = args.out_crf + ('/%.2f' % alpha)
+            crf_folder = args.out_crf + alpha
             if not os.path.exists(crf_folder):
                 os.makedirs(crf_folder)
 
             np.save(os.path.join(crf_folder, name + '.npy'), crf_array)
 
 
-    alpha_list = [4, 8, 16, 24, 32]
-
+    # alpha_list = [4, 8, 16, 24, 32]
+    alpha_list = [4, 24]
+    print('Preparing AffinityNet...')
     for alpha in alpha_list:
+        start = time.time()
+        print(f'Info: Alpha {alpha} processing...')
         p_list = []
         for i in range(8):
-            p = multiprocessing.Process(target=_infer_crf_with_alpha, args=(i, 8, args.alpha))
+            p = multiprocessing.Process(target=_infer_crf_with_alpha, args=(i, 8, alpha))
             p.start()
             p_list.append(p)
         for p in p_list:
             p.join()
+            elapse = time.time() - start
         print(f'Info: Alpha {alpha} done!')
+        print(f'elapsed {elapse:.1f}s')

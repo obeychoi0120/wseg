@@ -13,7 +13,7 @@ model_urls = {
     'resnet18': 'https://download.pytorch.org/models/resnet18-5c106cde.pth',
     'resnet34': 'https://download.pytorch.org/models/resnet34-333f7ec4.pth',
     'resnet50': '~/.cache/torch/checkpoints/resnet50s-a75c83cf.pth',
-    'resnet101': '../../../pretrained/resnet101s-03a0f310.pth',
+    'resnet101': '/home/junsu/workspace/seg/wseg_dev3/segmentation/resnet101s-03a0f310.pth',
     'resnet152': '~/.cache/torch/checkpoints/resnet152s-36670e8b.pth',
     #'resnet50': 'https://s3.us-west-1.wasabisys.com/encoding/models/resnet50s-a75c83cf.zip',
     #'resnet101': 'https://s3.us-west-1.wasabisys.com/encoding/models/resnet101s-03a0f310.zip',

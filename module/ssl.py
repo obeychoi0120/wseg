@@ -42,8 +42,7 @@ def get_ssl_loss(args, iteration, pred_s=None, pred_t=None, cam_s=None, cam_t=No
         #     cutoff = args.p_cutoff - ratio*(args.p_cutoff - args.last_p_cutoff)
         # else:
         #   cutoff = args.p_cutoff
-
-        losses['loss_org'], losses['loss_pl'] = consistency_loss(cam_s, cam_t, 'ce', args.T, args.p_cutoff, args.soft_label, mask)
+        losses['loss_org'], losses['loss_pl'] = consistency_loss(args, cam_s, cam_t, 'ce', args.T, args.p_cutoff, args.soft_label, mask)
         losses['loss_ssl'] += losses['loss_pl'] * args.ssl_lambda
 
     ######           4. T(f(x)) <=> f(T(x)) InfoNCE loss          ######
@@ -60,18 +59,23 @@ def get_ssl_loss(args, iteration, pred_s=None, pred_t=None, cam_s=None, cam_t=No
 
     return losses
 
-def consistency_loss(logits_s, logits_t, name='L2', T=1.0, p_cutoff=0.0, use_soft_label=False, mask=None):
+def consistency_loss(args, logits_s, logits_t, name='L2', T=1.0, p_cutoff=0.0, use_soft_label=False, mask=None):
     logits_t = logits_t.detach()
-    
     if name == 'ce':
-        pseudo_label = torch.softmax(logits_t, dim=1)
-        max_probs, max_idx = torch.max(pseudo_label, dim=1)
+        logits_t = torch.softmax(logits_t, dim=1)
+        _, max_idx = torch.max(logits_t, dim=1)
         # mask = max_probs.ge(p_cutoff).float()
         # mask = torch.where(max_idx < 20, mask, torch.zeros_like(mask)) # ignore background confidence
         
         if not use_soft_label:  # 0217 current
+            criterion = nn.CrossEntropyLoss(reduction='mean')
+            # import pdb; pdb.set_trace()
             org_loss = ce_loss(logits_s, max_idx, use_soft_label, reduction='none')
-            masked_loss = (org_loss * mask).mean()
+            if args.pl_method == 'mask':
+                masked_loss = org_loss.mean()
+            else:
+                masked_loss = (org_loss * mask).mean()
+            # import pdb; pdb.set_trace()
             # masked_loss = torch.div((org_loss*mask).sum(), mask.sum()) # NOPE
             # l2_loss = F.mse_loss(logits_s, logits_t, reduction='none').mean()
         
@@ -79,6 +83,7 @@ def consistency_loss(logits_s, logits_t, name='L2', T=1.0, p_cutoff=0.0, use_sof
             pseudo_label = torch.softmax(logits_t / T, dim=1)
             org_loss = ce_loss(logits_s, pseudo_label, use_soft_label)
             masked_loss = org_loss * mask
+
         return org_loss, masked_loss
     
     elif name == 'L2':
@@ -138,7 +143,6 @@ def transform_cam(cam, i, j, h, w, hor_flip, args): ### useless
         aug_cam[b, :, :] = orig_gcam
     return aug_cam
 
-
 # functional form of NCESoftmaxLoss
 def nce_softmax_loss(x, T=0.01):
     bsz = x.shape[0]
@@ -148,10 +152,8 @@ def nce_softmax_loss(x, T=0.01):
     loss = F.cross_entropy(x, label)
     return loss
 
-
 def cam_normalize(x):
     return x / (x.norm(2, dim=1, keepdim=True)+1e-6)
-
 
 def consistency_cam_loss(cam_from_aug, augmented_cam, mask=None):
     if mask is not None:
@@ -221,7 +223,7 @@ def rand_bbox(size, l):
 
     return bbx1, bby1, bbx2, bby2
     
-def cutmix(img, cam1, feat1=None):
+def cutmix(img, cam1, feat1=None, bbox=None, return_bbox=False):
     mix_img = img.clone()
     mix_cam1 = cam1.clone()
     if feat1 is not None:
@@ -229,10 +231,12 @@ def cutmix(img, cam1, feat1=None):
    
     x_r1 = img.size(-1) / cam1.size(-1)
     y_r1 = img.size(-2) / cam1.size(-2)
-
-    # cam size == feat size
-    u_rand_index = torch.randperm(img.size()[0])[:img.size()[0]].cuda()
-    u_bbx1, u_bby1, u_bbx2, u_bby2 = rand_bbox(img.size(), l=np.random.beta(4, 4))
+    
+    if bbox is not None:
+        u_rand_index, u_bbx1, u_bby1, u_bbx2, u_bby2 = bbox
+    else:
+        u_rand_index = torch.randperm(img.size()[0])[:img.size()[0]].cuda()
+        u_bbx1, u_bby1, u_bbx2, u_bby2 = rand_bbox(img.size(), l=np.random.beta(4, 4))
 
     u_bbx1_t1, u_bby1_t1, u_bbx2_t1, u_bby2_t1 = (u_bbx1//x_r1).astype(np.int32), (u_bby1//y_r1).astype(np.int32), \
                                              (u_bbx2//x_r1).astype(np.int32), (u_bby2//y_r1).astype(np.int32)
@@ -248,13 +252,63 @@ def cutmix(img, cam1, feat1=None):
             mix_feat1[i, :, u_bbx1_t1[i]:u_bbx2_t1[i], u_bby1_t1[i]:u_bby2_t1[i]] = \
             feat1[u_rand_index[i], :, u_bbx1_t1[i]:u_bbx2_t1[i], u_bby1_t1[i]:u_bby2_t1[i]] 
             
+    if feat1 is not None:
+        if return_bbox:
+            return mix_img, mix_cam1, mix_feat1, (u_rand_index, u_bbx1, u_bby1, u_bbx2, u_bby2)
+        else:
+            return mix_img, mix_cam1, mix_feat1
+    else:    
+        if return_bbox:
+            return mix_img, mix_cam1, (u_rand_index, u_bbx1, u_bby1, u_bbx2, u_bby2)
+        else:
+            return mix_img, mix_cam1
+
+def cutmix2(img, cam1, cam2, feat1=None, feat2=None):
+    mix_img = img.clone()
+    mix_cam1 = cam1.clone()
+    mix_cam2 = cam2.clone()
+
+    if feat1 is not None:
+        assert feat2 is not None
+        mix_feat1 = feat1.clone()
+        mix_feat2 = feat2.clone()
+
+    x_r1 = img.size(-1) / cam1.size(-1)
+    y_r1 = img.size(-2) / cam1.size(-2)
+    x_r2 = img.size(-1) / cam2.size(-1)
+    y_r2 = img.size(-2) / cam2.size(-2)
+
+    # cam size == feat size
+    u_rand_index = torch.randperm(img.size()[0])[:img.size()[0]].cuda()
+    u_bbx1, u_bby1, u_bbx2, u_bby2 = rand_bbox(img.size(), l=np.random.beta(4, 4))
+
+    u_bbx1_t1, u_bby1_t1, u_bbx2_t1, u_bby2_t1 = (u_bbx1//x_r1).astype(np.int32), (u_bby1//y_r1).astype(np.int32), \
+                                             (u_bbx2//x_r1).astype(np.int32), (u_bby2//y_r1).astype(np.int32)
+    u_bbx1_t2, u_bby1_t2, u_bbx2_t2, u_bby2_t2 = (u_bbx1//x_r2).astype(np.int32), (u_bby1//y_r2).astype(np.int32), \
+                                             (u_bbx2//x_r2).astype(np.int32), (u_bby2//y_r2).astype(np.int32)
+
+    for i in range(0, mix_img.size(0)):
+        mix_img[i, :, u_bbx1[i]:u_bbx2[i], u_bby1[i]:u_bby2[i]] = \
+            img[u_rand_index[i], :, u_bbx1[i]:u_bbx2[i], u_bby1[i]:u_bby2[i]]
+
+        mix_cam1[i, :, u_bbx1_t1[i]:u_bbx2_t1[i], u_bby1_t1[i]:u_bby2_t1[i]] = \
+            cam1[u_rand_index[i], :, u_bbx1_t1[i]:u_bbx2_t1[i], u_bby1_t1[i]:u_bby2_t1[i]]        
+
+        mix_cam2[i, :, u_bbx1_t2[i]:u_bbx2_t2[i], u_bby1_t2[i]:u_bby2_t2[i]] = \
+            cam2[u_rand_index[i], :, u_bbx1_t2[i]:u_bbx2_t2[i], u_bby1_t2[i]:u_bby2_t2[i]]
+        
+        if feat1 is not None:
+            mix_feat1[i, :, u_bbx1_t2[i]:u_bbx2_t2[i], u_bby1_t2[i]:u_bby2_t2[i]] = \
+                feat1[u_rand_index[i], :, u_bbx1_t2[i]:u_bbx2_t2[i], u_bby1_t2[i]:u_bby2_t2[i]]
+            
+            mix_feat2[i, :, u_bbx1_t2[i]:u_bbx2_t2[i], u_bby1_t2[i]:u_bby2_t2[i]] = \
+                feat2[u_rand_index[i], :, u_bbx1_t2[i]:u_bbx2_t2[i], u_bby1_t2[i]:u_bby2_t2[i]]
             
     if feat1 is not None:
-        return mix_img, mix_cam1, mix_feat1
+        return mix_img, mix_cam1, mix_cam2, mix_feat1, mix_feat2
     else:    
-        return mix_img, mix_cam1
-
-
+        return mix_img, mix_cam1, mix_cam2
+    
 def class_discriminative_contrastive_loss(cam, feat, p_cutoff=0., inter=False, temperature=0.07, eps=1e-9, normalize=True):
     B, FS, H, W = feat.size()
     if inter:
@@ -320,73 +374,6 @@ def class_discriminative_contrastive_loss(cam, feat, p_cutoff=0., inter=False, t
     # # Final loss
     loss = - pos_mean_log_prob # (temperature / base_temperature)
     return loss.mean(), mask.mean().detach(), logit_mask.mean().detach()
-
-# class EMA(object):
-#     '''
-#         apply expontential moving average to a model. This should have same function as the `tf.train.ExponentialMovingAverage` of tensorflow.
-#         usage:
-#             model = resnet()
-#             model.train()
-#             ema = EMA(model, 0.9999)
-#             ....
-#             for img, lb in dataloader:
-#                 loss = ...
-#                 loss.backward()
-#                 optim.step()
-#                 ema.update_params() # apply ema
-#             evaluate(model)  # evaluate with original model as usual
-#             ema.apply_shadow() # copy ema status to the model
-#             evaluate(model) # evaluate the model with ema paramters
-#             ema.restore() # resume the model parameters
-#         args:
-#             - model: the model that ema is applied
-#             - alpha: each parameter p should be computed as p_hat = alpha * p + (1. - alpha) * p_hat
-#             - buffer_ema: whether the model buffers should be computed with ema method or just get kept
-#         methods:
-#             - update_params(): apply ema to the model, usually call after the optimizer.step() is called
-#             - apply_shadow(): copy the ema processed parameters to the model
-#             - restore(): restore the original model parameters, this would cancel the operation of apply_shadow()
-#     '''
-#     def __init__(self, model, alpha, buffer_ema=True):
-#         self.step = 0
-#         self.model = model
-#         self.alpha = alpha
-#         self.buffer_ema = buffer_ema
-#         self.shadow = self.get_model_state()
-#         self.backup = {}
-#         self.param_keys = [k for k, _ in self.model.named_parameters()]
-#         self.buffer_keys = [k for k, _ in self.model.named_buffers()]
-
-#     def update_params(self):
-#         decay = min(self.alpha, (self.step + 1) / (self.step + 10))
-#         state = self.model.state_dict()
-#         for name in self.param_keys:
-#             self.shadow[name].copy_(
-#                 decay * self.shadow[name]
-#                 + (1 - decay) * state[name]
-#             )
-#         for name in self.buffer_keys:
-#             if self.buffer_ema:
-#                 self.shadow[name].copy_(
-#                     decay * self.shadow[name]
-#                     + (1 - decay) * state[name]
-#                 )
-#             else:
-#                 self.shadow[name].copy_(state[name])
-#         self.step += 1
-
-#     def apply_shadow(self):
-#         self.backup = self.get_model_state()
-#         self.model.load_state_dict(self.shadow)
-
-#     def restore(self):
-#         self.model.load_state_dict(self.backup)
-
-#     def get_model_state(self):
-#         return {
-#             k: v.clone().detach()
-#             for k, v in self.model.state_dict().items()
-#         }
 
 # Implementation from https://fyubang.com/2019/06/01/ema/
 class EMA:

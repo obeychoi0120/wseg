@@ -1,9 +1,9 @@
 import importlib
-
 import torch
 
 
 def get_model(args):
+
     model = getattr(importlib.import_module(args.network), 'Net')(num_class=args.num_sample)
 
     if args.weights[-7:] == '.params':
@@ -12,7 +12,9 @@ def get_model(args):
                                 "network.resnet38_eps",
                                 "network.resnet38_eps_seam",
                                 "network.resnet38_contrast",
-                                "network_with_PCM.resnet38_eps_seam_p"]
+                                "network_with_PCM.resnet38_eps_seam_p",
+                                "network.rca"
+                                ]
         import network.resnet38d
         weights_dict = network.resnet38d.convert_mxnet_to_torch(args.weights)
     elif args.weights[-11:] == '.caffemodel':

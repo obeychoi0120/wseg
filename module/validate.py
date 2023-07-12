@@ -33,29 +33,26 @@ def validate(args, model, data_loader, iter, tag='val'):
                 cam = logit_.clone()
                 cam[:, :-1, :, :] *= label
                 cam = cam[0].cpu().numpy()
-                cam[cam < 0] = 0
+                cam = F.relu(cam)
                 cam_max = np.max(cam, (1, 2), keepdims=True)
                 cam_min = np.min(cam, (1, 2), keepdims=True)
                 cam[cam < (cam_min + 1e-5)] = 0
                 norm_cam = (cam - cam_min - 1e-5) / (cam_max - cam_min + 1e-5)
+                max_probs = logit.softmax(dim=1).max(dim=1).values
             
             else:
-                logit = model.module.forward_cam(img)                   # (1, 21, H, W), [-11 ~ 16]
-                cam = logit.clone().softmax(dim=1)
-                cam = F.interpolate(cam, labels[i].shape, mode='bilinear', align_corners=False)
+                logit = F.interpolate(model.module.forward_cam(img).softmax(dim=1), labels[i].shape, mode='bilinear', align_corners=False)
+                # logit = F.interpolate(model.module.forward_cam(img), labels[i].shape, mode='bilinear', align_corners=False)
+                cam = logit.clone()
                 cam[:, :-1, :, :] *= label
                 cam = cam[0].cpu().numpy()
-                norm_cam = cam / (np.max(cam, (1, 2), keepdims=True) + 1e-5)            
+                norm_cam = cam / (np.max(cam, (1, 2), keepdims=True) + 1e-5)
+                max_probs = logit.max(dim=1).values
             
             cam = torch.tensor(norm_cam).unsqueeze(0).cuda()  # (1, 21, H, W), [-16 ~ 100]
             cam_ = cam.argmax(dim=1)
 
-            # Logit
-            max_probs = logit.softmax(dim=1).max(dim=1).values
-
             # background(20 -> 0)
-            # pred += 1
-            # pred[pred==args.num_sample] = 0
             cam_ += 1
             cam_[cam_==args.num_sample] = 0
 

@@ -346,3 +346,30 @@ def get_eps_loss(cam, saliency, label, tau, alpha, intermediate=True, num_class=
         return loss, fg_map, bg_map, sal_pred
     else:
         return loss
+    
+### AMN 
+def balanced_cross_entropy(logits, labels, one_hot_labels):
+    """
+    :param logits: shape: (N, C)
+    :param labels: shape: (N, C)
+    :param reduction: options: "none", "mean", "sum"
+    :return: loss or losses
+    """
+
+    N, C, H, W = logits.shape
+
+    assert one_hot_labels.size(0) == N and one_hot_labels.size(1) == C, f'label tensor shape is {one_hot_labels.shape}, while logits tensor shape is {logits.shape}'
+
+    log_logits = F.log_softmax(logits, dim=1)
+    loss_structure = -torch.sum(log_logits * one_hot_labels, dim=1)  # (N)
+
+    ignore_mask_bg = torch.zeros_like(labels)
+    ignore_mask_fg = torch.zeros_like(labels)
+    
+    ignore_mask_bg[labels == 0] = 1
+    ignore_mask_fg[(labels != 0) & (labels != 255)] = 1
+    
+    loss_bg = (loss_structure * ignore_mask_bg).sum() / ignore_mask_bg.sum()
+    loss_fg = (loss_structure * ignore_mask_fg).sum() / ignore_mask_fg.sum()
+
+    return (loss_bg+loss_fg)/2

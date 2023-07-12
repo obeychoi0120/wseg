@@ -135,7 +135,6 @@ if __name__ == '__main__':
 
                 avg_meter.pop()
 
-
         else:
             print('')
             timer.reset_stage()

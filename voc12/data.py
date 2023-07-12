@@ -50,8 +50,7 @@ def load_img_name_list(dataset_path):
 
     img_gt_name_list = open(dataset_path).read().splitlines()
     img_name_list = [img_gt_name.split(' ')[0][-15:-4] for img_gt_name in img_gt_name_list]
-
-    #img_name_list = img_gt_name_list
+    
     return img_name_list
 
 class VOC12ImageDataset(Dataset):
@@ -221,12 +220,14 @@ class VOC12AffDataset(VOC12ImageDataset):
         name, img = super().__getitem__(idx)
 
         label_la_path = os.path.join(self.label_la_dir, name + '.npy')
-
         label_ha_path = os.path.join(self.label_ha_dir, name + '.npy')
 
-        label_la = np.load(label_la_path, allow_pickle=True).item()
-        label_ha = np.load(label_ha_path, allow_pickle=True).item()
-        label = np.array(list(label_la.values()) + list(label_ha.values()))
+        label_la = np.load(label_la_path, allow_pickle=True)
+        label_ha = np.load(label_ha_path, allow_pickle=True)
+        # label_la = np.load(label_la_path, allow_pickle=True).item()
+        # label_ha = np.load(label_ha_path, allow_pickle=True).item()
+        # label = np.array(list(label_la.values()) + list(label_ha.values()))
+        label = np.array(list(label_la) + list(label_ha))
         # TODO: 如果保存的是dict就用上面三行，如果是array就用下面三行
         # label_la = np.load(label_la_path, allow_pickle=True)
         # label_ha = np.load(label_ha_path, allow_pickle=True)

@@ -7,17 +7,16 @@ from torchvision import transforms
 
 from data.dataset import ImageDataset, ClassificationDataset, ClassificationDatasetOnMemory, ClassificationDatasetWithSaliency, ClassificationDatasetWithSaliencyOnMemory
 from util import imutils
+
 from util.imutils import Normalize
 
-def seed_worker(worker_id):
-    worker_seed = torch.initial_seed() % (2**32)
-    np.random.seed(worker_seed)
-    random.seed(worker_seed)
+
+# def seed_worker(worker_id):
+#     worker_seed = torch.initial_seed() % (2**32)
+#     np.random.seed(worker_seed)
+#     random.seed(worker_seed)
 
 def get_dataloader(args):
-    if args.seed:
-        g = torch.Generator()
-        g.manual_seed(args.seed)
     if not args.data_on_mem:
         CLS_DATASET = ClassificationDataset
         CLS_SAL_DATASET = ClassificationDatasetWithSaliency
@@ -35,7 +34,7 @@ def get_dataloader(args):
     else:
         ssl_params = {}
 
-    if args.network_type in ['cls', 'seam']:
+    if args.network_type in ['cls', 'seam', 'rca']:
         train_dataset = CLS_DATASET(
             dataset             = args.dataset,
             img_id_list_file    = args.train_list,
@@ -57,26 +56,15 @@ def get_dataloader(args):
         )
     else:
         raise Exception("No appropriate train type")
-    if args.seed:
-        train_loader = DataLoader(
-            train_dataset, 
-            batch_size=args.batch_size, 
-            shuffle=True,
-            num_workers=args.num_workers,
-            worker_init_fn=seed_worker,
-            generator=g,
-            pin_memory=True, 
-            drop_last=True
-            )
-    else:
-        train_loader = DataLoader(
-            train_dataset, 
-            batch_size=args.batch_size, 
-            shuffle=True,
-            num_workers=args.num_workers,
-            pin_memory=True, 
-            drop_last=True
-            )
+
+    train_loader = DataLoader(
+        train_dataset, 
+        batch_size=args.batch_size, 
+        shuffle=True,
+        num_workers=args.num_workers,
+        pin_memory=True, 
+        drop_last=True
+        )
     
     try:
         val_dataset = CLS_DATASET(

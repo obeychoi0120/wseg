@@ -5,13 +5,15 @@ import argparse
 from torch.backends import cudnn
 import wandb
 
-from util import pyutils
+import numpy as np
+import random
+
+from util import pyutils 
 
 from module.dataloader import get_dataloader
 from module.model import get_model
 from module.optimizer import get_optimizer
-from module.train import train, train_ssl
-
+from module.train import train_ppc_ssl, train_ppc
 
 dataset_list = ['voc12', 'coco']
 
@@ -34,8 +36,8 @@ def get_arguments():
     parser.add_argument('--val_list', default='data/voc12/train_id.txt', type=str)
     parser.add_argument('--data_on_mem', action='store_true') ### Load dataset on RAM(need 20GB additional RAM)
     parser.add_argument('--batch_size', default=8, type=int)
-    parser.add_argument('--crop_size', default=448, type=int)
     parser.add_argument('--resize_size', default=(448, 768), type=int, nargs='*')
+    parser.add_argument('--crop_size', default=448, type=int)        
 
     # Iteration & Optimizer
     parser.add_argument('--iter_size', default=2, type=int)
@@ -54,7 +56,7 @@ def get_arguments():
     parser.add_argument('--alpha', default=0.5, type=float)
 
     ### Semi-supervised Learning ###
-    parser.add_argument('--mode', required=True, choices=['base', 'v2', 'ssl'])
+    parser.add_argument('--mode', required=True, choices=['base', 'ssl'])
     parser.add_argument('--ssl_type', nargs='+', default=[3], type=int) # 1: MT, 2: pixel-wise MT, 3: fixmatch
     parser.add_argument("--ulb_dataset", default=None, choices=dataset_list, type=str)
     parser.add_argument('--ulb_data_root', default=None, type=str)
@@ -78,12 +80,18 @@ def get_arguments():
     parser.add_argument('--cdc_inter', action='store_true') # Calculate Inter-image pixel    
     
     ### Augmentations ###
-    parser.add_argument('--ulb_aug_type', default='strong', type=str) # None / weak / strong : 'aug_type'
-    parser.add_argument('--n_strong_augs', required=True, type=int) # number of RandAug
-    parser.add_argument('--use_cutmix', action='store_true') # Use CutMix
+    parser.add_argument('--ulb_aug_type', default='strong', type=str)   # None / weak / strong : 'aug_type'
+    parser.add_argument('--n_strong_augs', required=True, type=int)     # number of RandAug
+    parser.add_argument('--use_cutmix', action='store_true')            # Use CutMix
     parser.add_argument('--patch_k', default=None, type=int)
     parser.add_argument('--use_geom_augs', action='store_true')
-    
+
+    parser.add_argument('--bdry_size', default=0, type=int)
+    parser.add_argument('--bdry_lambda', default=0.0, type=float)
+    parser.add_argument('--bdry', action='store_true')
+
+    parser.add_argument('--recon_lambda', default=0.0, type=float)
+    parser.add_argument('--screg_lambda', default=0.0, type=float)
     args = parser.parse_args()
 
     # Dataset(Class Number)
@@ -141,6 +149,16 @@ if __name__ == '__main__':
     elif 'eps' in args.network:
         shutil.copyfile('./network/resnet38_eps.py', os.path.join(args.log_folder, 'resnet38_eps.py'))
 
+    # Control Randomness
+    if args.seed:
+        torch.manual_seed(args.seed)
+        torch.cuda.manual_seed(args.seed)
+        torch.cuda.manual_seed_all(args.seed) # if use multi-GPU
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+        np.random.seed(args.seed)
+        random.seed(args.seed)
+
     # Load dataset (train_ulb_loader=None where args.ssl==False)
     train_loader, train_ulb_loader, val_loader = get_dataloader(args) ###
 
@@ -148,25 +166,24 @@ if __name__ == '__main__':
     num_data = len(open(args.train_list).read().splitlines())
     if args.max_epoches is None:
         args.max_epoches = int(args.max_iters * args.iter_size // (num_data // args.batch_size))
-    max_step = (num_data // args.batch_size) * args.max_epoches
-
+    # max_step = (num_data // args.batch_size) * args.max_epoches
+    max_step = len(train_loader) * args.max_epoches
+    
     # Load (ImageNet) Pretrained Model
     model = get_model(args)
-
+    
     # Set optimizer
     optimizer = get_optimizer(args, model, max_step)
     
     # DP
-    model = torch.nn.DataParallel(model).cuda()
+    model.cuda()
+    model = torch.nn.DataParallel(model)
     model.train()
     
-    # Arguments
-    print(vars(args))
     if args.use_wandb:
         wandb.config.update(args)
-    # Train
-    if args.mode in ['ssl', 'v2']:
-        train_ssl(train_loader, train_ulb_loader, val_loader, model, optimizer, max_step, args)
+    if args.mode == 'ssl':
+        train_ppc_ssl(train_loader, train_ulb_loader, val_loader, model, optimizer, max_step, args)
     else:
-        train(train_loader, val_loader, model, optimizer, max_step, args)
+        train_ppc(train_loader, val_loader, model, optimizer, max_step, args)
     print('Train Done.')

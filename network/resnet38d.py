@@ -110,15 +110,15 @@ class Net(nn.Module):
 
         self.conv1a = nn.Conv2d(3, 64, 3, padding=1, bias=False)
 
-        self.b2 = ResBlock(64, 128, 128, stride=2)
+        self.b2 = ResBlock(64, 128, 128, stride=2)  # 224
         self.b2_1 = ResBlock(128, 128, 128)
         self.b2_2 = ResBlock(128, 128, 128)
 
-        self.b3 = ResBlock(128, 256, 256, stride=2)
+        self.b3 = ResBlock(128, 256, 256, stride=2) # 112
         self.b3_1 = ResBlock(256, 256, 256)
         self.b3_2 = ResBlock(256, 256, 256)
 
-        self.b4 = ResBlock(256, 512, 512, stride=2)
+        self.b4 = ResBlock(256, 512, 512, stride=2) # 56
         self.b4_1 = ResBlock(512, 512, 512)
         self.b4_2 = ResBlock(512, 512, 512)
         self.b4_3 = ResBlock(512, 512, 512)
@@ -156,7 +156,7 @@ class Net(nn.Module):
         x = self.b3_1(x)
         x = self.b3_2(x)
 
-        x = self.b4(x)
+        x, conv3 = self.b4(x, get_x_bn_relu=True)
         x = self.b4_1(x)
         x = self.b4_2(x)
         x = self.b4_3(x)
@@ -172,7 +172,7 @@ class Net(nn.Module):
         x = self.b7(x)
         conv6 = F.relu(self.bn7(x))
 
-        return dict({'conv4': conv4, 'conv5': conv5, 'conv6': conv6})
+        return dict({'conv3': conv3, 'conv4': conv4, 'conv5': conv5, 'conv6': conv6})
 
 
     def train(self, mode=True):

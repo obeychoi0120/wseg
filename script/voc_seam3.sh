@@ -6,7 +6,8 @@ SALIENCY_ROOT=./SALImages
 GPU=3
 
 # Default setting
-SESSION="0508/P_seam_n3+noCM_s7_163"
+SESSION="0517/P+_seam_s7_163"
+# SESSION="test"
 IMG_ROOT=${DATASET_ROOT}/JPEGImages
 BACKBONE=resnet38_seam
 BASE_WEIGHT=${WEIGHT_ROOT}/ilsvrc-cls_rna-a1_cls1000_ep-0001.params
@@ -25,10 +26,14 @@ CUDA_VISIBLE_DEVICES=${GPU} python3 contrast_train.py \
     --batch_size        8       \
     --val_times 	    40      \
     --p_cutoff          0.95    \
-    --use_ema                   \
+    --use_geom_augs             \
+    --n_strong_augs     5       \
+    --seed              7       \
     --use_wandb                 \
-    --n_strong_aug      3       \
-    --seed              7
+    # --patch_k           2       \
+    # --use_ema                   \
+    # --use_cutmix                \
+    
     
       
 DATA=train # train / train_aug

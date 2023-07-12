@@ -8,6 +8,5 @@ pretrained/*
 *.pth
 *.params
 *.ipynb
-segmentation/log
-segmentation/data
+segmentation/*
 *.png
