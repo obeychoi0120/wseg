@@ -115,7 +115,7 @@ class ImageDataset(Dataset):
 
             ### Image 2. Strong augmetation (for consistency regularization) ###
             elif self.aug_type == 'strong':
-                img_s, tr_ops, randaug_ops = self.__apply_transform(img,
+                img_s, tr_ops, ra_ops = self.__apply_transform(img,
                                                                    get_transform=True,
                                                                    strong=True,
                                                                    resize_size=weak_resize_size,
@@ -126,7 +126,7 @@ class ImageDataset(Dataset):
                                                                    ) 
 
                 img_s = self.__totensor(img_s)
-                return img_id, img_w, img_s, tr_ops, randaug_ops
+                return img_id, img_w, img_s, ra_ops
 
             else:
                 raise Exception('No appropriate Augmentation type')
@@ -157,13 +157,13 @@ class ImageDataset(Dataset):
         # Strong Augmentation
         if strong:
             if patch_k:
-                patches, randaug_ops = patch_with_tr(img, patch_k, self.randaug)
+                patches, ra_ops = patch_with_tr(img, patch_k, self.randaug)
                 img = merge_patches_np(patches, patch_k)
             
             else:
                 img = Image.fromarray(img)
                 img = self.blur(img)
-                img, randaug_ops = self.randaug(img)
+                img, ra_ops = self.randaug(img)
                 img = np.asarray(img)
 
         # normalize
@@ -171,7 +171,7 @@ class ImageDataset(Dataset):
 
         if get_transform: ###
             if strong:
-                return img, (resize_size, hflip, tr_box), randaug_ops
+                return img, (resize_size, hflip, tr_box), ra_ops
             else:
                 return img, (resize_size, hflip, tr_box)
         else:
@@ -195,7 +195,7 @@ class ClassificationDataset(ImageDataset):
     def __getitem__(self, idx):
         label = torch.from_numpy(self.label_list[idx])
 
-        return super().__getitem__(idx) + (label)
+        return super().__getitem__(idx) + (label,)
 
 
 class ClassificationDatasetWithSaliency(ImageDataset):
@@ -232,7 +232,7 @@ class ClassificationDatasetWithSaliency(ImageDataset):
         ### Image 2: Strong augmetation (for MT, FixMatch)
         elif self.aug_type == 'strong':
             ### TODO: mask transform, return aug information
-            img_s, saliency2, tr_ops, randaug_tr = self.__apply_transform_with_sal(img, 
+            img_s, saliency2, tr_ops, ra_ops = self.__apply_transform_with_sal(img, 
                                                                                   saliency, 
                                                                                   get_transform=True, 
                                                                                   strong=True, 
@@ -244,7 +244,7 @@ class ClassificationDatasetWithSaliency(ImageDataset):
                                                                                   )
             img_s, saliency2 = self.__totensor(img_s, saliency2)
 
-            return img_id, img_w, saliency1, img_s, saliency2, tr_ops, randaug_tr, label
+            return img_id, img_w, saliency1, img_s, saliency2, ra_ops, label
         else:
             raise Exception('No appropriate Augmentation type')
 
@@ -277,14 +277,14 @@ class ClassificationDatasetWithSaliency(ImageDataset):
         # Strong Augmentation
         if strong:
             if patch_k:
-                patches, randaug_ops = patch_with_tr(img, patch_k, self.randaug)
+                patches, ra_ops = patch_with_tr(img, patch_k, self.randaug)
                 img = merge_patches_np(patches, patch_k)
                 img = np.asarray(img)
 
             else:
                 img = Image.fromarray(img)
                 img = self.blur(img)
-                img, randaug_ops = self.randaug(img)
+                img, ra_ops = self.randaug(img)
                 img = np.asarray(img)
             
         # Normalize
@@ -293,7 +293,7 @@ class ClassificationDatasetWithSaliency(ImageDataset):
 
         if get_transform:
             if strong:
-                return img, sal, (resize_size, hflip, tr_box), randaug_ops
+                return img, sal, (resize_size, hflip, tr_box), ra_ops
             else:
                 return img, sal, (resize_size, hflip, tr_box)
         else:

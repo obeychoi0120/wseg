@@ -223,91 +223,39 @@ def rand_bbox(size, l):
 
     return bbx1, bby1, bbx2, bby2
     
-def cutmix(img, cam1, feat1=None, bbox=None, return_bbox=False):
-    mix_img = img.clone()
-    mix_cam1 = cam1.clone()
-    if feat1 is not None:
-        mix_feat1 = feat1.clone()
-   
-    x_r1 = img.size(-1) / cam1.size(-1)
-    y_r1 = img.size(-2) / cam1.size(-2)
-    
-    if bbox is not None:
-        u_rand_index, u_bbx1, u_bby1, u_bbx2, u_bby2 = bbox
-    else:
-        u_rand_index = torch.randperm(img.size()[0])[:img.size()[0]].cuda()
-        u_bbx1, u_bby1, u_bbx2, u_bby2 = rand_bbox(img.size(), l=np.random.beta(4, 4))
+def cutmix(img_ulb, target, mask=None):
+    mix_img_ulb = img_ulb.clone()
+    mix_target = target.clone()
+    if mask is not None:
+        mix_mask = mask.clone()
 
-    u_bbx1_t1, u_bby1_t1, u_bbx2_t1, u_bby2_t1 = (u_bbx1//x_r1).astype(np.int32), (u_bby1//y_r1).astype(np.int32), \
-                                             (u_bbx2//x_r1).astype(np.int32), (u_bby2//y_r1).astype(np.int32)
-
-    for i in range(0, mix_img.size(0)):
-        mix_img[i, :, u_bbx1[i]:u_bbx2[i], u_bby1[i]:u_bby2[i]] = \
-            img[u_rand_index[i], :, u_bbx1[i]:u_bbx2[i], u_bby1[i]:u_bby2[i]]
-
-        mix_cam1[i, :, u_bbx1_t1[i]:u_bbx2_t1[i], u_bby1_t1[i]:u_bby2_t1[i]] = \
-            cam1[u_rand_index[i], :, u_bbx1_t1[i]:u_bbx2_t1[i], u_bby1_t1[i]:u_bby2_t1[i]]        
-        
-        if feat1 is not None:
-            mix_feat1[i, :, u_bbx1_t1[i]:u_bbx2_t1[i], u_bby1_t1[i]:u_bby2_t1[i]] = \
-            feat1[u_rand_index[i], :, u_bbx1_t1[i]:u_bbx2_t1[i], u_bby1_t1[i]:u_bby2_t1[i]] 
-            
-    if feat1 is not None:
-        if return_bbox:
-            return mix_img, mix_cam1, mix_feat1, (u_rand_index, u_bbx1, u_bby1, u_bbx2, u_bby2)
-        else:
-            return mix_img, mix_cam1, mix_feat1
-    else:    
-        if return_bbox:
-            return mix_img, mix_cam1, (u_rand_index, u_bbx1, u_bby1, u_bbx2, u_bby2)
-        else:
-            return mix_img, mix_cam1
-
-def cutmix2(img, cam1, cam2, feat1=None, feat2=None):
-    mix_img = img.clone()
-    mix_cam1 = cam1.clone()
-    mix_cam2 = cam2.clone()
-
-    if feat1 is not None:
-        assert feat2 is not None
-        mix_feat1 = feat1.clone()
-        mix_feat2 = feat2.clone()
-
-    x_r1 = img.size(-1) / cam1.size(-1)
-    y_r1 = img.size(-2) / cam1.size(-2)
-    x_r2 = img.size(-1) / cam2.size(-1)
-    y_r2 = img.size(-2) / cam2.size(-2)
-
+    x_r = img_ulb.size(-1) / target.size(-1)
+    y_r = img_ulb.size(-2) / target.size(-2)
     # cam size == feat size
-    u_rand_index = torch.randperm(img.size()[0])[:img.size()[0]].cuda()
-    u_bbx1, u_bby1, u_bbx2, u_bby2 = rand_bbox(img.size(), l=np.random.beta(4, 4))
+    
+    u_rand_index = torch.randperm(img_ulb.size()[0])[:img_ulb.size()[0]].cuda()
+    u_bbx1, u_bby1, u_bbx2, u_bby2 = rand_bbox(img_ulb.size(), l=np.random.beta(4, 4))
 
-    u_bbx1_t1, u_bby1_t1, u_bbx2_t1, u_bby2_t1 = (u_bbx1//x_r1).astype(np.int32), (u_bby1//y_r1).astype(np.int32), \
-                                             (u_bbx2//x_r1).astype(np.int32), (u_bby2//y_r1).astype(np.int32)
-    u_bbx1_t2, u_bby1_t2, u_bbx2_t2, u_bby2_t2 = (u_bbx1//x_r2).astype(np.int32), (u_bby1//y_r2).astype(np.int32), \
-                                             (u_bbx2//x_r2).astype(np.int32), (u_bby2//y_r2).astype(np.int32)
+    u_bbx1_t, u_bby1_t, u_bbx2_t, u_bby2_t = (u_bbx1//x_r).astype(np.int32), (u_bby1//y_r).astype(np.int32), \
+                                             (u_bbx2//x_r).astype(np.int32), (u_bby2//y_r).astype(np.int32)
 
-    for i in range(0, mix_img.size(0)):
-        mix_img[i, :, u_bbx1[i]:u_bbx2[i], u_bby1[i]:u_bby2[i]] = \
-            img[u_rand_index[i], :, u_bbx1[i]:u_bbx2[i], u_bby1[i]:u_bby2[i]]
+    for i in range(0, mix_img_ulb.size(0)):
+        mix_img_ulb[i, :, u_bbx1[i]:u_bbx2[i], u_bby1[i]:u_bby2[i]] = \
+            img_ulb[u_rand_index[i], :, u_bbx1[i]:u_bbx2[i], u_bby1[i]:u_bby2[i]]
 
-        mix_cam1[i, :, u_bbx1_t1[i]:u_bbx2_t1[i], u_bby1_t1[i]:u_bby2_t1[i]] = \
-            cam1[u_rand_index[i], :, u_bbx1_t1[i]:u_bbx2_t1[i], u_bby1_t1[i]:u_bby2_t1[i]]        
-
-        mix_cam2[i, :, u_bbx1_t2[i]:u_bbx2_t2[i], u_bby1_t2[i]:u_bby2_t2[i]] = \
-            cam2[u_rand_index[i], :, u_bbx1_t2[i]:u_bbx2_t2[i], u_bby1_t2[i]:u_bby2_t2[i]]
+        mix_target[i, :, u_bbx1_t[i]:u_bbx2_t[i], u_bby1_t[i]:u_bby2_t[i]] = \
+            target[u_rand_index[i], :, u_bbx1_t[i]:u_bbx2_t[i], u_bby1_t[i]:u_bby2_t[i]]
         
-        if feat1 is not None:
-            mix_feat1[i, :, u_bbx1_t2[i]:u_bbx2_t2[i], u_bby1_t2[i]:u_bby2_t2[i]] = \
-                feat1[u_rand_index[i], :, u_bbx1_t2[i]:u_bbx2_t2[i], u_bby1_t2[i]:u_bby2_t2[i]]
-            
-            mix_feat2[i, :, u_bbx1_t2[i]:u_bbx2_t2[i], u_bby1_t2[i]:u_bby2_t2[i]] = \
-                feat2[u_rand_index[i], :, u_bbx1_t2[i]:u_bbx2_t2[i], u_bby1_t2[i]:u_bby2_t2[i]]
-            
-    if feat1 is not None:
-        return mix_img, mix_cam1, mix_cam2, mix_feat1, mix_feat2
+        if mask is not None:
+            mix_mask[i, :, u_bbx1[i]:u_bbx2[i], u_bby1[i]:u_bby2[i]] = \
+                mask[u_rand_index[i], :, u_bbx1[i]:u_bbx2[i], u_bby1[i]:u_bby2[i]]
+
+    del img_ulb, target
+
+    if mask is not None:
+        return mix_img_ulb, mix_target, mix_mask
     else:    
-        return mix_img, mix_cam1, mix_cam2
+        return mix_img_ulb, mix_target
     
 def class_discriminative_contrastive_loss(cam, feat, p_cutoff=0., inter=False, temperature=0.07, eps=1e-9, normalize=True):
     B, FS, H, W = feat.size()

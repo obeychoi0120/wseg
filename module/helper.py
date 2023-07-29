@@ -81,19 +81,14 @@ def calc_acc_byclass(cams, labels):
 
 def get_avg_meter(args):
     log_keys = ['loss_cls', 'loss_sup']
-    if args.network_type == 'seam':
-        log_keys.extend(['loss_er', 'loss_ecr', 'loss_er_s', 'loss_ecr_s', \
-                         'loss_er_ws', 'loss_ecr_ws'])
-    elif args.network_type == 'eps':
-        log_keys.extend(['loss_sal'])
-    elif args.network_type == 'contrast':
+    if args.network_type == 'contrast':
         log_keys.extend(['loss_er', 'loss_ecr', 'loss_nce', 'loss_sal', \
+                         'mask_ratio', 'fg_mask_ratio'
                          ])
-    if args.mode in ['v2', 'ssl']:
+    if args.mode == 'ssl':
         log_keys.extend([
-            'loss', 'loss_semcon', 'loss_semcon2', 'loss_recon', 'loss_screg', \
-            'mask_1', 'mask_2', 'mask_3', 'mask_4', 'mask_5', 'mask_6', \
-            'mask_ratio', 'bdry_ratio'
+            'loss', 'loss_semcon', 'loss_bdry', 'bdry_ratio', \
+            'mask_1', 'mask_2', 'mask_3', 'mask_4', 'mask_5', 'mask_6'
             ])
     avg_meter = pyutils.AverageMeter(*log_keys)
     return avg_meter

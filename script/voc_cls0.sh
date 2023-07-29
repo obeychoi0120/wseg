@@ -10,29 +10,23 @@ GPU=0
 IMG_ROOT=${DATASET_ROOT}/JPEGImages
 SAL_ROOT=${DATASET_ROOT}/${SALIENCY_ROOT}
 BACKBONE=resnet38_cls
-SESSION="0707/P_cls_k2+bdry_154"
+SESSION="0726/cls_s7_lr0.1_154"
 BASE_WEIGHT=${WEIGHT_ROOT}/ilsvrc-cls_rna-a1_cls1000_ep-0001.params
 GT_ROOT=${DATASET_ROOT}/SegmentationClassAug/
 
 # 1. train classification network
 CUDA_VISIBLE_DEVICES=${GPU} python3 contrast_train.py \
-    --mode              ssl    \
+    --mode              base    \
     --session           ${SESSION}  \
     --network           network.${BACKBONE} \
     --data_root         ${IMG_ROOT} \
     --weights           ${BASE_WEIGHT} \
-    --crop_size         448     \
-    --tau               0.4     \
+    --resize_sizze      320 640 \
+    --crop_size         512     \
     --max_iters         10000   \
-    --iter_size         2       \
-    --batch_size        8       \
-    --val_times 	    40      \
-    --n_strong_augs     5       \
-    --patch_k           2       \
-    --p_cutoff          0.95    \
-    --bdry_method       fg      \
-    --bdry_size         3       \
-    --bdry_lambda       1.0     \
+    --iter_size         1       \
+    --batch_size        16      \
+    --lr                0.1     \
     # --use_wandb      
 
 # TRAINED_WEIGHT=train_log/${SESSION}/checkpoint.pth

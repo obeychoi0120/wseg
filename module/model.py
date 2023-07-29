@@ -13,7 +13,7 @@ def get_model(args):
                                 "network.resnet38_eps_seam",
                                 "network.resnet38_contrast",
                                 "network_with_PCM.resnet38_eps_seam_p",
-                                "network.rca"
+                                "network.resnet50_cam"
                                 ]
         import network.resnet38d
         weights_dict = network.resnet38d.convert_mxnet_to_torch(args.weights)
