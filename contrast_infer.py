@@ -136,7 +136,6 @@ def predict_cam(model, image, label, gpu, args):
                     label = None
             
             if args.network_type == 'cls' :
-                # cam = F.softmax(cam[:,:-1], dim=1)
                 cam = F.interpolate(cam[:,:-1], original_image_size, mode='bilinear', align_corners=False)[0]
                 cam = cam.cpu().numpy() * label.reshape(args.num_sample-1, 1, 1)
                 if i % 2 == 1:
@@ -144,7 +143,6 @@ def predict_cam(model, image, label, gpu, args):
                 cam_list.append(cam)
             
             elif args.network_type == 'seam':
-                # cam = F.softmax(cam, dim=1)
                 cam = F.interpolate(cam, original_image_size, mode='bilinear', align_corners=False)[0]
 
                 cam_fg = cam[:-1]

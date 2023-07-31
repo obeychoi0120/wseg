@@ -26,6 +26,7 @@ import cv2
 def train_base(train_dataloader, val_dataloader, model, optimizer, max_step, args):
     avg_meter = get_avg_meter(args=args)
     timer = pyutils.Timer("Session started: ")
+    print("# of train data: ", len(train_dataloader.dataset))
     loader_iter = iter(train_dataloader)
     # Wandb logging
     if args.use_wandb:
@@ -55,9 +56,12 @@ def train_base(train_dataloader, val_dataloader, model, optimizer, max_step, arg
             except:
                 iteration = 10000
             # Validation
-            if val_dataloader is not None:
-                print('Validating Student Model... ')
-                validate(args, model, val_dataloader, iteration, tag='val')
+            if args.dataset == 'voc12':
+                print('Validating at VOC train...')
+                validate_voc(args, model, val_dataloader, iteration, tag='val')
+            elif args.dataset == 'coco':
+                print('Validating on COCO val...')
+                validate_coco(args, model, val_dataloader, iteration, tag='val')
     
     else:
         for iteration in range(args.max_iters):
@@ -89,10 +93,10 @@ def train_base(train_dataloader, val_dataloader, model, optimizer, max_step, arg
                     loss_er, loss_ecr = get_er_loss(cam1, cam2, cam_rv1, cam_rv2, label_append_bg)
                     
                     # EPS+PPC Losses
-                    loss_sal, _, _, _ = get_eps_loss(cam1, sal, label, args.tau, args.alpha, intermediate=True, num_class=args.num_sample)
-                    loss_sal2, _, _, _ = get_eps_loss(cam2, sal2, label, args.tau, args.alpha, intermediate=True, num_class=args.num_sample)
-                    loss_sal_rv, _, _, _ = get_eps_loss(cam_rv1, sal, label, args.tau, args.alpha, intermediate=True, num_class=args.num_sample)
-                    loss_sal_rv2, _, _, _ = get_eps_loss(cam_rv2, sal2, label, args.tau, args.alpha, intermediate=True, num_class=args.num_sample)
+                    loss_sal, _, _, _ = get_eps_loss(cam1, sal, label, args.tau, args.alpha, intermediate=True, num_class=args.num_classes)
+                    loss_sal2, _, _, _ = get_eps_loss(cam2, sal2, label, args.tau, args.alpha, intermediate=True, num_class=args.num_classes)
+                    loss_sal_rv, _, _, _ = get_eps_loss(cam_rv1, sal, label, args.tau, args.alpha, intermediate=True, num_class=args.num_classes)
+                    loss_sal_rv2, _, _, _ = get_eps_loss(cam_rv2, sal2, label, args.tau, args.alpha, intermediate=True, num_class=args.num_classes)
                     loss_sal = (loss_sal + loss_sal2) / 2. + (loss_sal_rv + loss_sal_rv2) / 2.
                     loss_nce = get_contrast_loss(cam_rv1, cam_rv2, feat1, feat2, label, gamma=gamma, bg_thres=0.10)
                     loss_sup = loss_cls + loss_er + loss_ecr + loss_sal + loss_nce
@@ -172,15 +176,19 @@ def train_base(train_dataloader, val_dataloader, model, optimizer, max_step, arg
                     tscalar.clear()
 
                 # Validate K times
-                if (optimizer.global_step-1) % (val_freq * args.iter_size) == 0:
+                if (optimizer.global_step-1)!=0 and (optimizer.global_step-1) % (val_freq * args.iter_size) == 0 or iteration == args.max_iters-1:
+                # if (optimizer.global_step-1) % (val_freq * args.iter_size) == 0 or iteration == args.max_iters-1:
                     # Save intermediate model
                     model_path = os.path.join(args.log_folder, f'checkpoint_{iteration}.pth')
                     torch.save(model.module.state_dict(), model_path)
                     print(f'Model {model_path} Saved.')
                     # Validation
-                    if val_dataloader is not None:
-                        print('Validating Student Model... ')
-                        validate(args, model, val_dataloader, iteration, tag='val') 
+                    if args.dataset == 'voc12':
+                        print('Validating at VOC train...')
+                        validate_voc(args, model, val_dataloader, iteration, tag='val')
+                    elif args.dataset == 'coco':
+                        print('Validating on COCO val...')
+                        validate_coco(args, model, val_dataloader, iteration, tag='val')
                 timer.reset_stage()
         
         torch.save(model.module.state_dict(), os.path.join(args.log_folder, 'checkpoint.pth'))
@@ -238,26 +246,29 @@ def train_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, model, opt
             except:
                 iteration = 10000
             # Validation
-            if val_dataloader is not None:
-                print('Validating Student Model... ')
-                validate(args, model, val_dataloader, iteration, tag='val')
+            if args.dataset == 'voc12':
+                print('Validating at VOC train...')
+                validate_voc(args, model, val_dataloader, iteration, tag='val')
+            elif args.dataset == 'coco':
+                print('Validating on COCO val...')
+                validate_coco(args, model, val_dataloader, iteration, tag='val')
     else:
         for iteration in range(args.max_iters):
             for _ in range(args.iter_size):
                 ######## Dataloads ########
                 if args.network_type == 'contrast':
                     try:
-                        img_id, img_w, sal, img_s, _, randaug_ops, label = next(lb_loader_iter)
+                        img_id, img_w, sal, img_s, randaug_ops, label = next(lb_loader_iter)
                     except:
                         lb_loader_iter = iter(train_dataloader)
-                        img_id, img_w, sal, img_s, _, randaug_ops, label = next(lb_loader_iter)
+                        img_id, img_w, sal, img_s, randaug_ops, label = next(lb_loader_iter)
                     B = len(img_id)
                     if train_ulb_dataloader:
                         try:
-                            ulb_img_id, ulb_img_w, ulb_img_s, _, ulb_randaug_ops = next(ulb_loader_iter)
+                            ulb_img_id, ulb_img_w, ulb_img_s, ulb_randaug_ops = next(ulb_loader_iter)
                         except:
                             ulb_loader_iter = iter(train_ulb_dataloader)       
-                            ulb_img_id, ulb_img_w, ulb_img_s, _, ulb_randaug_ops = next(ulb_loader_iter)
+                            ulb_img_id, ulb_img_w, ulb_img_s, ulb_randaug_ops = next(ulb_loader_iter)
                             
                         # Concat Image lb & ulb
                         img_id = img_id + ulb_img_id
@@ -289,11 +300,10 @@ def train_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, model, opt
                     loss_er, loss_ecr = get_er_loss(cam1, cam2, cam_rv1, cam_rv2, label_append_bg)
                     
                     # EPS+PPC Losses
-                    # resblock7(conv6)
-                    loss_sal, _, _, _ = get_eps_loss(cam1, sal, label, args.tau, args.alpha, intermediate=True, num_class=args.num_sample)
-                    loss_sal2, _, _, _ = get_eps_loss(cam2, sal, label, args.tau, args.alpha, intermediate=True, num_class=args.num_sample)
-                    loss_sal_rv, _, _, _ = get_eps_loss(cam_rv1, sal, label, args.tau, args.alpha, intermediate=True, num_class=args.num_sample)
-                    loss_sal_rv2, _, _, _ = get_eps_loss(cam_rv2, sal, label, args.tau, args.alpha, intermediate=True, num_class=args.num_sample)
+                    loss_sal, _, _, _ = get_eps_loss(cam1, sal, label, args.tau, args.alpha, intermediate=True, num_class=args.num_classes)
+                    loss_sal2, _, _, _ = get_eps_loss(cam2, sal, label, args.tau, args.alpha, intermediate=True, num_class=args.num_classes)
+                    loss_sal_rv, _, _, _ = get_eps_loss(cam_rv1, sal, label, args.tau, args.alpha, intermediate=True, num_class=args.num_classes)
+                    loss_sal_rv2, _, _, _ = get_eps_loss(cam_rv2, sal, label, args.tau, args.alpha, intermediate=True, num_class=args.num_classes)
                     loss_nce = get_contrast_loss(cam_rv1, cam_rv2, feat1, feat2, label, gamma=gamma, bg_thres=0.10)[0]
                     loss_sal = (loss_sal + loss_sal2) / 2. + (loss_sal_rv + loss_sal_rv2) / 2. 
 
@@ -474,14 +484,17 @@ def train_ssl(train_dataloader, train_ulb_dataloader, val_dataloader, model, opt
                     tscalar.clear()
                     
                 # Validate K times
-                if (optimizer.global_step-1) % (val_freq * args.iter_size) == 0 or iteration == args.max_iters-1:
+                if (optimizer.global_step-1)!=0 and (optimizer.global_step-1) % (val_freq * args.iter_size) == 0 or iteration == args.max_iters-1:
                     # Save intermediate model
                     model_path = os.path.join(args.log_folder, f'checkpoint_{iteration}.pth')
                     torch.save(model.module.state_dict(), model_path)
                     print(f'Model {model_path} Saved.')
                     # Validation
-                    if val_dataloader is not None:
-                        print('Validating Student Model... ')
-                        validate(args, model, val_dataloader, iteration, tag='val') 
+                    if args.dataset == 'voc12':
+                        print('Validating at VOC train...')
+                        validate_voc(args, model, val_dataloader, iteration, tag='val')
+                    elif args.dataset == 'coco':
+                        print('Validating on COCO val...')
+                        validate_coco(args, model, val_dataloader, iteration, tag='val')
                 timer.reset_stage()
         torch.save(model.module.state_dict(), os.path.join(args.log_folder, 'checkpoint.pth'))

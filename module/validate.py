@@ -4,26 +4,43 @@ from sklearn.metrics import precision_recall_fscore_support as score
 from torch.nn import functional as F
 from chainercv.datasets import VOCSemanticSegmentationDataset
 from chainercv.evaluations import calc_semantic_segmentation_confusion
-from util import pyutils
-from data.dataset import get_categories
-import wandb
-from tqdm import tqdm
+from data.dataset import get_categories, COCOSemanticSegmentationDataset, COCOSegmentationDataset
 from module.helper import *
-import pdb
-import matplotlib.pyplot as plt
-import cv2
-from matplotlib import cm
-import copy
 
-def validate(args, model, data_loader, iter, tag='val'):
-    
+from util import pyutils
+import wandb
+import pdb
+import os.path as osp
+from tqdm import tqdm
+import matplotlib.pyplot as plt
+from matplotlib import cm
+
+def combine_img_cam(img, cam, p=0.5): # img: (3, H, W), cam: (H, W)
+    heatmap = cm.jet(cam)[:,:,:-1]#*255  
+    heatmap = heatmap.transpose(2,0,1)
+    img = img / np.max(img)
+    mix_img = p * img + (1-p) * heatmap
+    # mix_img /= np.max(mix_img)
+    return mix_img
+
+def validate_voc(args, model, data_loader, iter, tag='val'):    
     timg = {}
     heatmap = {}
     heatmap_all = {}
-    idx2class = get_categories(args.num_sample, bg_last=False, get_dict=True)
-    gt_dataset = VOCSemanticSegmentationDataset(split='train', data_dir=args.data_root+'/../') # Temporary 
+    idx2class = get_categories(args.num_classes, bg_last=False, get_dict=True)
+    # if args.dataset == 'voc12':
+    gt_dataset = VOCSemanticSegmentationDataset(split='train', data_dir=args.data_root+'/../')
     labels = [gt_dataset.get_example_by_keys(i, (1,))[0] for i in range(len(gt_dataset))]
-
+    # elif args.dataset == 'coco':
+    #     # gt_dataset = COCOSemanticSegmentationDataset(split='val', data_dir=args.data_root)
+    #     gt_dataset = COCOSegmentationDataset(image_dir  = osp.join(args.data_root,'images/val2014/'),
+    #                                          anno_path  = osp.join(args.mscoco_root,'annotations/instances_val2014.json'),
+    #                                          masks_path = osp.join(args.mscoco_root,'mask/val2014'),
+    #                                          crop_size=512
+    #                                          )
+        
+    #     labels = gt_dataset.get_label_by_name(filename)
+        
     model.eval()
     with torch.no_grad():
         hmaps = []
@@ -52,7 +69,7 @@ def validate(args, model, data_loader, iter, tag='val'):
             
             pred = cam.argmax(axis=0)   # H, W
             pred += 1                   # background(20 -> 0)
-            pred[pred==args.num_sample] = 0
+            pred[pred==args.num_classes] = 0
 
             # logging confidents
             max_probs = logit[0].max(dim=0).values.cpu().numpy() # H, W
@@ -164,10 +181,29 @@ def validate(args, model, data_loader, iter, tag='val'):
 
     model.train()
 
-def combine_img_cam(img, cam, p=0.5): # img: (3, H, W), cam: (H, W)
-    heatmap = cm.jet(cam)[:,:,:-1]#*255  
-    heatmap = heatmap.transpose(2,0,1)
-    img = img / np.max(img)
-    mix_img = p * img + (1-p) * heatmap
-    # mix_img /= np.max(mix_img)
-    return mix_img
+def validate_coco(args, model, data_loader, iter, tag='val'):
+    print('validating ... ', flush=True, end='')
+
+    val_loss_meter = pyutils.AverageMeter('loss')
+
+    model.eval()
+
+    with torch.no_grad():
+        for i, (img_id, img, label) in tqdm(enumerate(data_loader)):
+            img = img.cuda()    # 1, 3, H, W
+            label = label.cuda(non_blocking=True).unsqueeze(-1).unsqueeze(-1)    # 1, 80, 1, 1
+            x, _, _, _, _ = model(img)
+            loss = F.multilabel_soft_margin_loss(x, label)
+
+            val_loss_meter.add({'loss': loss.item()})
+        
+        log_scalar = {'loss': val_loss_meter.pop('loss')
+                      }
+        if args.use_wandb:
+            wandb.log({tag+'/'+k: v for k, v in log_scalar.items()}, step=iter)
+
+    model.train()
+    print('loss: %.4f' % (val_loss_meter.pop('loss')))
+
+    return
+

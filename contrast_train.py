@@ -26,7 +26,7 @@ def get_arguments():
     parser.add_argument('--session', default='wsss', type=str)
     parser.add_argument('--use_wandb', action='store_true') ### Use wandb Logging
     parser.add_argument('--log_freq', default=50, type=int)
-    parser.add_argument('--val_freq', default=250, type=int)
+    parser.add_argument('--val_freq', default=500, type=int)
     parser.add_argument('--seed', default=None, type=int)
 
     # Data
@@ -41,7 +41,7 @@ def get_arguments():
     parser.add_argument('--crop_size', default=448, type=int)        
 
     # Iteration & Optimizer
-    parser.add_argument('--iter_size', default=2, type=int)
+    parser.add_argument('--iter_size', default=1, type=int)
     parser.add_argument('--max_iters', default=10000, type=int)
     parser.add_argument('--max_epoches', default=None, type=int) # default=15
     parser.add_argument('--lr', default=0.01, type=float)
@@ -49,7 +49,7 @@ def get_arguments():
     parser.add_argument('--wt_dec', default=5e-4, type=float)
 
     # Network
-    parser.add_argument('--network', default='network.resnet38_cls', type=str)
+    parser.add_argument('--network', default='network.resnet38_contrast', type=str)
     parser.add_argument('--weights', required=True, type=str, default='pretrained/ilsvrc-cls_rna-a1_cls1000_ep-0001.params')
     
     # Hyperparameters for EPS
@@ -81,7 +81,7 @@ def get_arguments():
     parser.add_argument('--cdc_inter', action='store_true') # Calculate Inter-image pixel    
     
     ### Augmentations ###
-    parser.add_argument('--ulb_aug_type', default='strong', type=str)   # None / weak / strong : 'aug_type'
+    parser.add_argument('--aug_type', default='strong', type=str)   # None / weak / strong : 'aug_type'
     parser.add_argument('--n_strong_augs', type=int)     # number of RandAug
     parser.add_argument('--use_cutmix', action='store_true')            # Use CutMix
     parser.add_argument('--patch_k', default=None, type=int)
@@ -96,9 +96,9 @@ def get_arguments():
 
     # Dataset(Class Number)
     if args.dataset == 'voc12':
-        args.num_sample = 21
+        args.num_classes = 21
     elif args.dataset == 'coco':
-        args.num_sample = 81
+        args.num_classes = 81
     
     # Unlabeled Dataset
     if args.mode == 'ssl':
@@ -154,7 +154,7 @@ if __name__ == '__main__':
         random.seed(args.seed)
 
     # Load dataset (train_ulb_loader=None where args.ssl==False)
-    train_loader, train_ulb_loader, val_loader = get_dataloader(args) ###
+    train_loader, val_loader = get_dataloader(args) ###
 
     # Max step
     num_data = len(open(args.train_list).read().splitlines())
@@ -170,7 +170,7 @@ if __name__ == '__main__':
         optimizer = get_optimizer(args, model, max_step)
         
     elif args.network_type == 'cls':
-        model = getattr(importlib.import_module(args.cam_network), 'Net')()
+        model = getattr(importlib.import_module(args.network), 'Net')()
         param_groups = model.trainable_parameters()
         optimizer = torchutils.PolyOptimizer([
             {'params': param_groups[0], 'lr': args.cam_learning_rate, 'weight_decay': args.cam_weight_decay},
@@ -185,7 +185,7 @@ if __name__ == '__main__':
     if args.use_wandb:
         wandb.config.update(args)
     if args.mode == 'ssl':
-        train_ssl(train_loader, train_ulb_loader, val_loader, model, optimizer, max_step, args)
+        train_ssl(train_loader, None, val_loader, model, optimizer, max_step, args)
     else:
         train_base(train_loader, val_loader, model, optimizer, max_step, args)
     print('Train Done.')
